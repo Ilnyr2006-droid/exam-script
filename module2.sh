@@ -1,13 +1,13 @@
+cat << 'EOF' > module2.sh
 #!/bin/bash
-# АВТОМАТИЗАЦИЯ МОДУЛЯ 2 (Samba, RAID, Docker, Web, Ansible)
-# Источник: Твой документ "демо.docx"
+# МОДУЛЬ 2: С ISO ИЗ ЗАГРУЗОК (/home/user/Загрузки)
 
 ROLE=$1
-ISO_MOUNT="/mnt/additional"
-
-# Пароли из задания
 PASS_ADM="P@ssw0rd"
-PASS_ROOT="P@ssw0rd"
+# [cite: 281, 345] Точка монтирования
+ISO_MOUNT="/mnt/additional"
+#  Путь к файлу
+ISO_FILE="/home/user/Загрузки/Additional.iso"
 
 if [ -z "$ROLE" ]; then
     echo "Использование: ./module2.sh [роль]"
@@ -18,16 +18,68 @@ install_pkg() {
     DEBIAN_FRONTEND=noninteractive apt-get install -y $@
 }
 
-echo "=== НАЧИНАЮ НАСТРОЙКУ МОДУЛЯ 2: $ROLE ==="
+echo "=== НАСТРОЙКА МОДУЛЯ 2: $ROLE ==="
 
 case $ROLE in
+    "isp")
+        # [cite: 174-190] Chrony
+        echo ">>> Настройка времени (Chrony)..."
+        install_pkg chrony nginx apache2-utils
+        
+        cat <<CONFIG > /etc/chrony/chrony.conf
+server 0.debian.pool.ntp.org iburst
+local stratum 5
+allow 172.16.0.0/12
+allow 192.168.0.0/16
+log measurements statistics tracking
+CONFIG
+        systemctl restart chrony
+        systemctl enable chrony
+
+        # [cite: 487-591] Nginx Proxy
+        echo ">>> Настройка веб-прокси (Nginx)..."
+        htpasswd -bc /etc/nginx/.htpasswd WEB $PASS_ADM
+
+        cat <<CONFIG > /etc/nginx/sites-available/reverse_proxy.conf
+upstream hq_srv_app {
+    server 192.168.10.2:80;
+}
+upstream testapp_app {
+    server 192.168.100.2:8080;
+}
+server {
+    listen 80;
+    server_name web.au-team.irpo;
+    auth_basic "Restricted Access";
+    auth_basic_user_file /etc/nginx/.htpasswd;
+    location / {
+        proxy_pass http://hq_srv_app;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+}
+server {
+    listen 80;
+    server_name docker.au-team.irpo;
+    location / {
+        proxy_pass http://testapp_app;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+    }
+}
+CONFIG
+        ln -sf /etc/nginx/sites-available/reverse_proxy.conf /etc/nginx/sites-enabled/
+        rm -f /etc/nginx/sites-enabled/default
+        systemctl reload nginx
+        ;;
+
     "br-srv")
-        [cite_start]# [cite: 5] Установка пакетов Samba
-        echo ">>> Установка Samba AD DC..."
+        # [cite: 3-43] Samba AD DC
+        echo ">>> Установка Samba AD..."
         install_pkg samba winbind libnss-winbind krb5-user smbclient ldb-tools python3-cryptography expect sshpass
 
-        [cite_start]# [cite: 7-18] Настройка Kerberos
-        cat <<EOF > /etc/krb5.conf
+        cat <<CONFIG > /etc/krb5.conf
 [libdefaults]
     default_realm = AU-TEAM.IRPO
     dns_lookup_kdc = true
@@ -40,13 +92,11 @@ case $ROLE in
 [domain_realm]
     .au-team.irpo = AU-TEAM.IRPO
     au-team.irpo = AU-TEAM.IRPO
-EOF
+CONFIG
 
-        [cite_start]# [cite: 19-39] Инициализация домена
         rm -f /etc/samba/smb.conf
         systemctl stop samba winbind smbd nmbd
         
-        # Автоматический ввод данных для samba-tool (через аргументы, чтобы не висело)
         samba-tool domain provision \
             --realm=AU-TEAM.IRPO \
             --domain=AU-TEAM \
@@ -64,31 +114,24 @@ EOF
         systemctl enable samba-ad-dc
         systemctl restart samba-ad-dc
 
-        [cite_start]# [cite: 44-56] Создание пользователей и групп
         echo ">>> Создание пользователей..."
         samba-tool user add user1 $PASS_ADM
         samba-tool group addmembers "Domain Admins" user1
-        
-        for i in {1..5}; do
-            samba-tool user add hquser$i $PASS_ADM
-        done
-        
+        for i in {1..5}; do samba-tool user add hquser$i $PASS_ADM; done
         samba-tool group add hq
-        for i in {1..5}; do
-            samba-tool group addmembers hq hquser$i
-        done
+        for i in {1..5}; do samba-tool group addmembers hq hquser$i; done
 
-        [cite_start]# [cite: 221-247] Настройка Ansible
+        # [cite: 221-247] Ansible
         echo ">>> Настройка Ansible..."
         install_pkg ansible
         mkdir -p /etc/ansible
-        cat <<EOF > /etc/ansible/ansible.cfg
+        cat <<CONFIG > /etc/ansible/ansible.cfg
 [defaults]
 inventory = /etc/ansible/hosts
 host_key_checking = False
 retry_files_enabled = False
-EOF
-        cat <<EOF > /etc/ansible/hosts
+CONFIG
+        cat <<CONFIG > /etc/ansible/hosts
 [hq]
 HQ-SRV ansible_host=192.168.10.2 ansible_user=sshuser ansible_port=2026 ansible_ssh_pass=$PASS_ADM
 HQ-CLI ansible_host=192.168.20.10 ansible_user=sshuser ansible_port=22 ansible_ssh_pass=$PASS_ADM
@@ -96,38 +139,29 @@ HQ-RTR ansible_host=172.16.1.2 ansible_user=net_admin ansible_port=22 ansible_ss
 [br]
 BR-SRV ansible_connection=local ansible_user=root
 BR-RTR ansible_host=172.16.2.2 ansible_user=net_admin ansible_port=22 ansible_ssh_pass=$PASS_ADM
-
 [all:vars]
 ansible_become=yes
 ansible_python_interpreter=/usr/bin/python3
 ansible_ssh_common_args='-o StrictHostKeyChecking=no'
-EOF
-
-        [cite_start]# [cite: 255] Генерация ключей (без вопросов)
+CONFIG
         echo -e "\n\n\n" | ssh-keygen -t rsa -b 4096 -N "" -f /root/.ssh/id_rsa
 
-        [cite_start]# [cite: 258-261] Раскидывание ключей (используем sshpass для автоматизации)
-        # ВНИМАНИЕ: Это сработает, только если на других машинах уже созданы пользователи (см. ниже)
-        echo ">>> Попытка копирования ключей (может не сработать, если хосты недоступны)..."
-        sshpass -p "$PASS_ADM" ssh-copy-id -o StrictHostKeyChecking=no -p 2026 sshuser@192.168.10.2 || true
-        sshpass -p "$PASS_ADM" ssh-copy-id -o StrictHostKeyChecking=no -p 22 sshuser@192.168.20.10 || true
-        sshpass -p "$PASS_ADM" ssh-copy-id -o StrictHostKeyChecking=no -p 22 net_admin@172.16.1.2 || true
-        sshpass -p "$PASS_ADM" ssh-copy-id -o StrictHostKeyChecking=no -p 22 net_admin@172.16.2.2 || true
-
-        [cite_start]# [cite: 280-319] Docker и Web-App
+        # [cite: 280-319] Docker (С монтированием файла)
         echo ">>> Настройка Docker..."
         install_pkg docker.io docker-compose
-        
-        # Монтируем ISO для образов
         mkdir -p $ISO_MOUNT
-        mount /dev/cdrom $ISO_MOUNT || echo "!!! ОШИБКА: Вставьте Additional.iso в CD-ROM !!!"
         
-        if [ -d "$ISO_MOUNT/docker" ]; then
-            docker load -i $ISO_MOUNT/docker/mariadb_latest.tar
-            docker load -i $ISO_MOUNT/docker/site_latest.tar
+        # Монтируем файл ISO
+        if [ -f "$ISO_FILE" ]; then
+            mount -o loop "$ISO_FILE" $ISO_MOUNT
+            echo "ISO смонтирован."
             
-            mkdir -p /opt/testapp
-            cat <<EOF > /opt/testapp/docker-compose.yml
+            if [ -d "$ISO_MOUNT/docker" ]; then
+                docker load -i $ISO_MOUNT/docker/mariadb_latest.tar
+                docker load -i $ISO_MOUNT/docker/site_latest.tar
+                
+                mkdir -p /opt/testapp
+                cat <<CONFIG > /opt/testapp/docker-compose.yml
 version: '3.8'
 services:
   testapp:
@@ -158,50 +192,43 @@ services:
     restart: unless-stopped
 volumes:
   db_data:
-EOF
-            cd /opt/testapp
-            docker-compose up -d
+CONFIG
+                cd /opt/testapp && docker-compose up -d
+            fi
+        else
+            echo "!!! ОШИБКА: Файл $ISO_FILE не найден !!!"
         fi
         ;;
 
     "hq-srv")
-        [cite_start]# [cite: 58-74] Настройка Bind9 DLZ и зон
-        echo ">>> Донастройка DNS для AD..."
-        
-        # Добавляем SRV записи в зону
-        cat <<EOF >> /etc/bind/zones/db.au-team.irpo
+        # [cite: 58-74] DNS for AD
+        echo ">>> Настройка DNS..."
+        install_pkg bind9
+        cat <<CONFIG >> /etc/bind/zones/db.au-team.irpo
 _ldap._tcp.au-team.irpo.        IN      SRV     0 100 389       br-srv.au-team.irpo.
 _kerberos._tcp.au-team.irpo.    IN      SRV     0 100 88        br-srv.au-team.irpo.
 _kerberos._udp.au-team.irpo.    IN      SRV     0 100 88        br-srv.au-team.irpo.
 _kpasswd._tcp.au-team.irpo      IN      SRV     0 100 464       br-srv.au-team.irpo.
 _kpasswd._udp.au-team.irpo      IN      SRV     0 100 464       br-srv.au-team.irpo.
 _ldap._tcp.dc._msdcs.au-team.irpo       IN      SRV     0 100 389       br-srv.au-team.irpo.
-EOF
-        
-        # В named.conf.local добавляем DLZ и запреты
-        # (Упрощенно: перезаписываем файл, добавляя конфиг)
+CONFIG
         echo 'dlz "samba-dlz" { database "dlopen /usr/lib/x86_64-linux-gnu/samba/bind9/dlz_bind9_11.so"; };' >> /etc/bind/named.conf.local
-        
-        # В named.conf.options
         sed -i '/};/i allow-update { 192.168.100.2; };' /etc/bind/named.conf.options
         systemctl restart bind9
 
-        [cite_start]# [cite: 98-132] RAID 0
-        echo ">>> Настройка RAID 0..."
+        # [cite: 98-132] RAID
+        echo ">>> Настройка RAID..."
         install_pkg mdadm
-        # Создаем RAID (yes | ... чтобы не спрашивал)
         yes | mdadm --create /dev/md0 --level=0 --raid-devices=2 /dev/sdb /dev/sdc || true
         mdadm --detail --scan >> /etc/mdadm/mdadm.conf
         update-initramfs -u
-        
-        # Разметка диска (n, p, 1, enter, enter, w)
         echo -e "n\np\n1\n\n\nw" | fdisk /dev/md0 || true
         mkfs.ext4 /dev/md0p1 || true
         mkdir -p /raid
         mount /dev/md0p1 /raid
         echo "/dev/md0p1   /raid   ext4   defaults   0   0" >> /etc/fstab
 
-        [cite_start]# [cite: 136-149] NFS Server
+        # [cite: 136-149] NFS
         echo ">>> Настройка NFS..."
         install_pkg nfs-kernel-server
         mkdir -p /raid/nfs
@@ -210,157 +237,75 @@ EOF
         exportfs -ra
         systemctl enable --now nfs-kernel-server
 
-        [cite_start]# [cite: 325-455] Web Server (LAMP)
-        echo ">>> Настройка Web-сервера..."
+        # [cite: 325-455] Web Server (с монтированием файла)
+        echo ">>> Настройка Web..."
         install_pkg apache2 mariadb-server php php-mysql libapache2-mod-php
-        
-        # БД
-        mysql -e "CREATE DATABASE webdb;"
-        mysql -e "CREATE USER 'web'@'localhost' IDENTIFIED BY '$PASS_ADM';"
+        mysql -e "CREATE DATABASE IF NOT EXISTS webdb;"
+        mysql -e "CREATE USER IF NOT EXISTS 'web'@'localhost' IDENTIFIED BY '$PASS_ADM';"
         mysql -e "GRANT ALL PRIVILEGES ON webdb.* TO 'web'@'localhost';"
         mysql -e "FLUSH PRIVILEGES;"
         
-        # Импорт сайта (Нужен ISO)
         mkdir -p $ISO_MOUNT
-        mount /dev/cdrom $ISO_MOUNT || echo "!!! ВСТАВЬ ISO !!!"
-        
-        if [ -d "$ISO_MOUNT/web" ]; then
-            # Импорт дампа
-            mysql webdb < $ISO_MOUNT/web/dump.sql || mysql webdb < /root/dump.sql # Фолбэк если дампа нет
-            
-            # Копирование файлов
-            cp $ISO_MOUNT/web/index.php /var/www/html/
-            mkdir -p /var/www/html/images
-            cp $ISO_MOUNT/web/logo.png /var/www/html/images/
-            chown -R www-data:www-data /var/www/html/
-            chmod -R 755 /var/www/html/
-            rm /var/www/html/index.html
-            
-            # Настройка Apache
-            sed -i 's/DirectoryIndex index.html/DirectoryIndex index.php index.html/' /etc/apache2/mods-enabled/dir.conf
-            systemctl restart apache2
+        # Монтируем файл ISO
+        if [ -f "$ISO_FILE" ]; then
+            mount -o loop "$ISO_FILE" $ISO_MOUNT
+            echo "ISO смонтирован."
+
+            if [ -d "$ISO_MOUNT/web" ]; then
+                mysql webdb < $ISO_MOUNT/web/dump.sql || true
+                cp $ISO_MOUNT/web/index.php /var/www/html/
+                mkdir -p /var/www/html/images
+                cp $ISO_MOUNT/web/logo.png /var/www/html/images/
+                chown -R www-data:www-data /var/www/html/
+                chmod -R 755 /var/www/html/
+                rm -f /var/www/html/index.html
+                sed -i 's/DirectoryIndex index.html/DirectoryIndex index.php index.html/' /etc/apache2/mods-enabled/dir.conf
+                systemctl restart apache2
+            fi
+        else
+            echo "!!! ОШИБКА: Файл $ISO_FILE не найден !!!"
         fi
-        
-        [cite_start]# [cite: 195] Chrony Client
-        install_pkg chrony
-        echo "server 172.16.1.1 iburst" > /etc/chrony/chrony.conf
-        systemctl restart chrony
         ;;
 
     "hq-cli")
-        [cite_start]# [cite: 89-91] Ввод в домен
+        # [cite: 89-91] Join Domain
         echo ">>> Ввод в домен..."
         install_pkg realmd sssd sssd-tools libnss-sss libpam-sss adcli oddjob oddjob-mkhomedir packagekit samba-common-bin krb5-user nfs-common
-        
-        # Автоматический ввод пароля для realm join
         echo $PASS_ADM | realm join -v --user=Administrator AU-TEAM.IRPO
+        echo "%domain\ admins ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
-        [cite_start]# [cite: 94] Sudoers для доменных юзеров
-        echo "%domain\ admins ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers # Упростил для надежности
-        
-        [cite_start]# [cite: 161-167] Монтирование NFS
+        # [cite: 161-167] NFS Mount
         mkdir -p /mnt/nfs
         echo "192.168.10.2:/raid/nfs   /mnt/nfs   nfs   defaults   0   0" >> /etc/fstab
         mount -a
         
-        [cite_start]# [cite: 249-250] Создание пользователя для Ansible
-        useradd -m -s /bin/bash sshuser
+        # [cite: 249-250] Ansible User
+        useradd -m -s /bin/bash sshuser || true
         echo "sshuser:$PASS_ADM" | chpasswd
         usermod -aG sudo sshuser
         echo "sshuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/sshuser
-
-        [cite_start]# [cite: 195] Chrony Client
-        install_pkg chrony
-        echo "server 172.16.1.1 iburst" > /etc/chrony/chrony.conf
-        systemctl restart chrony
         ;;
 
     "hq-rtr"|"br-rtr")
-        [cite_start]# [cite: 463-482] Port Forwarding (NAT)
-        echo ">>> Настройка DNAT и Chrony..."
+        # [cite: 463-485] Routers
+        echo ">>> Настройка проброса портов..."
+        if [ "$ROLE" == "hq-rtr" ]; then DEST="192.168.10.2"; else DEST="192.168.100.2"; fi
         
-        if [ "$ROLE" == "hq-rtr" ]; then
-            DEST_IP="192.168.10.2"
-            LOCAL_NET="192.168.10.0/27"
-        else
-            DEST_IP="192.168.100.2"
-            LOCAL_NET="192.168.100.0/27"
-        fi
-
-        # Правила iptables (добавляем к существующим)
-        iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 8080 -j DNAT --to-destination $DEST_IP:8080
-        iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 80 -j DNAT --to-destination $DEST_IP:80 # Для hq-srv
-        iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 2026 -j DNAT --to-destination $DEST_IP:2026
-        
-        # Разрешаем проброс (FORWARD)
-        iptables -A FORWARD -p tcp -d $DEST_IP --dport 8080 -j ACCEPT
-        iptables -A FORWARD -p tcp -d $DEST_IP --dport 80 -j ACCEPT
-        iptables -A FORWARD -p tcp -d $DEST_IP --dport 2026 -j ACCEPT
-        
+        iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 8080 -j DNAT --to-destination $DEST:8080
+        iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 80 -j DNAT --to-destination $DEST:80
+        iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 2026 -j DNAT --to-destination $DEST:2026
+        iptables -A FORWARD -p tcp -d $DEST --dport 8080 -j ACCEPT
+        iptables -A FORWARD -p tcp -d $DEST --dport 80 -j ACCEPT
+        iptables -A FORWARD -p tcp -d $DEST --dport 2026 -j ACCEPT
         iptables-save > /etc/iptables/rules.v4
 
-        # Chrony Client
         install_pkg chrony
         echo "server 172.16.1.1 iburst" > /etc/chrony/chrony.conf
         systemctl restart chrony
         ;;
-
-    "isp")
-        [cite_start]# [cite: 175-190] Chrony Server
-        echo ">>> Настройка Chrony Server..."
-        install_pkg chrony nginx apache2-utils
-        
-        cat <<EOF > /etc/chrony/chrony.conf
-server 0.debian.pool.ntp.org iburst
-local stratum 5
-allow 172.16.0.0/12
-allow 192.168.0.0/16
-log measurements statistics tracking
-EOF
-        systemctl restart chrony
-
-        [cite_start]# [cite: 493-591] Nginx Reverse Proxy
-        echo ">>> Настройка Nginx Proxy..."
-        
-        # Создаем пароль для сайта
-        htpasswd -bc /etc/nginx/.htpasswd WEB $PASS_ADM
-
-        cat <<EOF > /etc/nginx/sites-available/reverse_proxy.conf
-upstream hq_srv_app {
-    server 192.168.10.2:80;
-}
-upstream testapp_app {
-    server 192.168.100.2:8080;
-}
-
-server {
-    listen 80;
-    server_name web.au-team.irpo;
-    auth_basic "Restricted Access";
-    auth_basic_user_file /etc/nginx/.htpasswd;
-    
-    location / {
-        proxy_pass http://hq_srv_app;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    }
-}
-
-server {
-    listen 80;
-    server_name docker.au-team.irpo;
-    location / {
-        proxy_pass http://testapp_app;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-    }
-}
-EOF
-        ln -s /etc/nginx/sites-available/reverse_proxy.conf /etc/nginx/sites-enabled/
-        rm -f /etc/nginx/sites-enabled/default
-        systemctl reload nginx
-        ;;
 esac
+echo "--- ГОТОВО: $ROLE ---"
+EOF
 
-echo "--- МОДУЛЬ 2 НАСТРОЕН ($ROLE) ---"
+chmod +x module2.sh
+./module2.sh isp
