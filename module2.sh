@@ -1,16 +1,15 @@
-cat << 'EOF' > module2.sh
 #!/bin/bash
-# МОДУЛЬ 2: С ISO ИЗ ЗАГРУЗОК (/home/user/Загрузки)
+# ИСПРАВЛЕННАЯ ВЕРСИЯ 2.1 (Fix Role Detection + ISO Path)
 
 ROLE=$1
 PASS_ADM="P@ssw0rd"
-# [cite: 281, 345] Точка монтирования
-ISO_MOUNT="/mnt/additional"
-#  Путь к файлу
 ISO_FILE="/home/user/Загрузки/Additional.iso"
+ISO_MOUNT="/mnt/additional"
 
 if [ -z "$ROLE" ]; then
+    echo "ОШИБКА: Не указана роль!"
     echo "Использование: ./module2.sh [роль]"
+    echo "Доступные роли: isp, br-srv, hq-srv, hq-cli, hq-rtr, br-rtr"
     exit 1
 fi
 
@@ -18,12 +17,12 @@ install_pkg() {
     DEBIAN_FRONTEND=noninteractive apt-get install -y $@
 }
 
-echo "=== НАСТРОЙКА МОДУЛЯ 2: $ROLE ==="
+echo "=== ЗАПУСК СКРИПТА ДЛЯ РОЛИ: $ROLE ==="
 
 case $ROLE in
     "isp")
-        # [cite: 174-190] Chrony
-        echo ">>> Настройка времени (Chrony)..."
+        [cite_start]# [cite: 174-190] Chrony
+        echo ">>> Настройка ISP: Время (Chrony)..."
         install_pkg chrony nginx apache2-utils
         
         cat <<CONFIG > /etc/chrony/chrony.conf
@@ -36,8 +35,8 @@ CONFIG
         systemctl restart chrony
         systemctl enable chrony
 
-        # [cite: 487-591] Nginx Proxy
-        echo ">>> Настройка веб-прокси (Nginx)..."
+        [cite_start]# [cite: 487-591] Nginx Proxy
+        echo ">>> Настройка ISP: Веб-прокси..."
         htpasswd -bc /etc/nginx/.htpasswd WEB $PASS_ADM
 
         cat <<CONFIG > /etc/nginx/sites-available/reverse_proxy.conf
@@ -75,8 +74,8 @@ CONFIG
         ;;
 
     "br-srv")
-        # [cite: 3-43] Samba AD DC
-        echo ">>> Установка Samba AD..."
+        [cite_start]# [cite: 3-43] Samba AD DC
+        echo ">>> Настройка BR-SRV: Samba AD..."
         install_pkg samba winbind libnss-winbind krb5-user smbclient ldb-tools python3-cryptography expect sshpass
 
         cat <<CONFIG > /etc/krb5.conf
@@ -114,15 +113,15 @@ CONFIG
         systemctl enable samba-ad-dc
         systemctl restart samba-ad-dc
 
-        echo ">>> Создание пользователей..."
+        echo ">>> BR-SRV: Создание пользователей..."
         samba-tool user add user1 $PASS_ADM
         samba-tool group addmembers "Domain Admins" user1
         for i in {1..5}; do samba-tool user add hquser$i $PASS_ADM; done
         samba-tool group add hq
         for i in {1..5}; do samba-tool group addmembers hq hquser$i; done
 
-        # [cite: 221-247] Ansible
-        echo ">>> Настройка Ansible..."
+        [cite_start]# [cite: 221-247] Ansible
+        echo ">>> BR-SRV: Ansible..."
         install_pkg ansible
         mkdir -p /etc/ansible
         cat <<CONFIG > /etc/ansible/ansible.cfg
@@ -146,16 +145,13 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no'
 CONFIG
         echo -e "\n\n\n" | ssh-keygen -t rsa -b 4096 -N "" -f /root/.ssh/id_rsa
 
-        # [cite: 280-319] Docker (С монтированием файла)
-        echo ">>> Настройка Docker..."
+        [cite_start]# [cite: 280-319] Docker
+        echo ">>> BR-SRV: Docker..."
         install_pkg docker.io docker-compose
         mkdir -p $ISO_MOUNT
         
-        # Монтируем файл ISO
         if [ -f "$ISO_FILE" ]; then
-            mount -o loop "$ISO_FILE" $ISO_MOUNT
-            echo "ISO смонтирован."
-            
+            mount -o loop "$ISO_FILE" $ISO_MOUNT || true
             if [ -d "$ISO_MOUNT/docker" ]; then
                 docker load -i $ISO_MOUNT/docker/mariadb_latest.tar
                 docker load -i $ISO_MOUNT/docker/site_latest.tar
@@ -196,13 +192,13 @@ CONFIG
                 cd /opt/testapp && docker-compose up -d
             fi
         else
-            echo "!!! ОШИБКА: Файл $ISO_FILE не найден !!!"
+            echo "!!! ISO файл не найден в Загрузках !!!"
         fi
         ;;
 
     "hq-srv")
-        # [cite: 58-74] DNS for AD
-        echo ">>> Настройка DNS..."
+        [cite_start]# [cite: 58-74] DNS
+        echo ">>> Настройка HQ-SRV: DNS..."
         install_pkg bind9
         cat <<CONFIG >> /etc/bind/zones/db.au-team.irpo
 _ldap._tcp.au-team.irpo.        IN      SRV     0 100 389       br-srv.au-team.irpo.
@@ -216,8 +212,8 @@ CONFIG
         sed -i '/};/i allow-update { 192.168.100.2; };' /etc/bind/named.conf.options
         systemctl restart bind9
 
-        # [cite: 98-132] RAID
-        echo ">>> Настройка RAID..."
+        [cite_start]# [cite: 98-132] RAID
+        echo ">>> Настройка HQ-SRV: RAID..."
         install_pkg mdadm
         yes | mdadm --create /dev/md0 --level=0 --raid-devices=2 /dev/sdb /dev/sdc || true
         mdadm --detail --scan >> /etc/mdadm/mdadm.conf
@@ -228,8 +224,8 @@ CONFIG
         mount /dev/md0p1 /raid
         echo "/dev/md0p1   /raid   ext4   defaults   0   0" >> /etc/fstab
 
-        # [cite: 136-149] NFS
-        echo ">>> Настройка NFS..."
+        [cite_start]# [cite: 136-149] NFS
+        echo ">>> Настройка HQ-SRV: NFS..."
         install_pkg nfs-kernel-server
         mkdir -p /raid/nfs
         chmod 777 /raid/nfs
@@ -237,8 +233,8 @@ CONFIG
         exportfs -ra
         systemctl enable --now nfs-kernel-server
 
-        # [cite: 325-455] Web Server (с монтированием файла)
-        echo ">>> Настройка Web..."
+        [cite_start]# [cite: 325-455] Web
+        echo ">>> Настройка HQ-SRV: Web..."
         install_pkg apache2 mariadb-server php php-mysql libapache2-mod-php
         mysql -e "CREATE DATABASE IF NOT EXISTS webdb;"
         mysql -e "CREATE USER IF NOT EXISTS 'web'@'localhost' IDENTIFIED BY '$PASS_ADM';"
@@ -246,11 +242,8 @@ CONFIG
         mysql -e "FLUSH PRIVILEGES;"
         
         mkdir -p $ISO_MOUNT
-        # Монтируем файл ISO
         if [ -f "$ISO_FILE" ]; then
-            mount -o loop "$ISO_FILE" $ISO_MOUNT
-            echo "ISO смонтирован."
-
+            mount -o loop "$ISO_FILE" $ISO_MOUNT || true
             if [ -d "$ISO_MOUNT/web" ]; then
                 mysql webdb < $ISO_MOUNT/web/dump.sql || true
                 cp $ISO_MOUNT/web/index.php /var/www/html/
@@ -263,23 +256,23 @@ CONFIG
                 systemctl restart apache2
             fi
         else
-            echo "!!! ОШИБКА: Файл $ISO_FILE не найден !!!"
+            echo "!!! ISO файл не найден в Загрузках !!!"
         fi
         ;;
 
     "hq-cli")
-        # [cite: 89-91] Join Domain
-        echo ">>> Ввод в домен..."
+        [cite_start]# [cite: 89-91] Join Domain
+        echo ">>> Настройка HQ-CLI: Ввод в домен..."
         install_pkg realmd sssd sssd-tools libnss-sss libpam-sss adcli oddjob oddjob-mkhomedir packagekit samba-common-bin krb5-user nfs-common
         echo $PASS_ADM | realm join -v --user=Administrator AU-TEAM.IRPO
         echo "%domain\ admins ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
-        # [cite: 161-167] NFS Mount
+        [cite_start]# [cite: 161-167] NFS Mount
         mkdir -p /mnt/nfs
         echo "192.168.10.2:/raid/nfs   /mnt/nfs   nfs   defaults   0   0" >> /etc/fstab
         mount -a
         
-        # [cite: 249-250] Ansible User
+        [cite_start]# [cite: 249-250] Ansible User
         useradd -m -s /bin/bash sshuser || true
         echo "sshuser:$PASS_ADM" | chpasswd
         usermod -aG sudo sshuser
@@ -287,8 +280,8 @@ CONFIG
         ;;
 
     "hq-rtr"|"br-rtr")
-        # [cite: 463-485] Routers
-        echo ">>> Настройка проброса портов..."
+        [cite_start]# [cite: 463-485] Routers
+        echo ">>> Настройка Роутера: NAT и Время..."
         if [ "$ROLE" == "hq-rtr" ]; then DEST="192.168.10.2"; else DEST="192.168.100.2"; fi
         
         iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 8080 -j DNAT --to-destination $DEST:8080
@@ -303,9 +296,10 @@ CONFIG
         echo "server 172.16.1.1 iburst" > /etc/chrony/chrony.conf
         systemctl restart chrony
         ;;
+    *)
+        echo "ОШИБКА: Неизвестная роль '$ROLE'"
+        exit 1
+        ;;
 esac
-echo "--- ГОТОВО: $ROLE ---"
-EOF
 
-chmod +x module2.sh
-./module2.sh isp
+echo "--- НАСТРОЙКА ЗАВЕРШЕНА ДЛЯ: $ROLE ---"
