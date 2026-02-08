@@ -1,17 +1,16 @@
 #!/bin/bash
-# ИСПРАВЛЕННАЯ ВЕРСИЯ 2.0 (Auto-detect interface, Fix DNS, Fix PATH)
-# Поддерживаемые роли: hq-srv, br-srv, hq-rtr, br-rtr, isp, hq-cli, hq-sw
+# ИСПРАВЛЕННАЯ ВЕРСИЯ 3.0 (Full DNS, ISP Routes, No Switch, Uniform Passwords)
+# Поддерживаемые роли: hq-srv, br-srv, hq-rtr, br-rtr, isp, hq-cli
 
-# --- ИСПРАВЛЕНИЕ 1: Чиним пути к командам (sysctl, iptables) ---
+# --- Чиним пути ---
 export PATH=$PATH:/usr/sbin:/sbin:/usr/bin:/bin
 
-# --- ИСПРАВЛЕНИЕ 2: Авто-определение имени интерфейса ---
-# Мы ищем интерфейс, который смотрит в интернет (обычно первый)
+# --- Авто-определение интерфейса ---
 REAL_IFACE=$(ip -o link show | awk -F': ' '{print $2}' | grep -v lo | head -n 1)
 if [ -z "$REAL_IFACE" ]; then REAL_IFACE="ens33"; fi
-echo ">>> Обнаружен основной интерфейс: $REAL_IFACE (вместо ens33)"
+echo ">>> Обнаружен основной интерфейс: $REAL_IFACE"
 
-# --- ИСПРАВЛЕНИЕ 3: Чиним DNS сразу, чтобы apt работал ---
+# --- Чиним DNS для установки пакетов ---
 echo "nameserver 8.8.8.8" > /etc/resolv.conf
 
 ROLE=$1
@@ -22,51 +21,48 @@ if [ -z "$ROLE" ]; then
     exit 1
 fi
 
-echo "=== НАЧИНАЮ НАСТРОЙКУ РОЛИ: $ROLE ==="
+echo "=== НАСТРОЙКА РОЛИ: $ROLE ==="
 
-# --- Базовая настройка (Имя, Время) ---
+# --- Имя и Время ---
 hostnamectl set-hostname "${ROLE}.${DOMAIN}"
 timedatectl set-timezone Europe/Moscow
 
-# --- Функция установки пакетов БЕЗ ВОПРОСОВ (Fix SSH prompt) ---
+# --- Функция установки ---
 install_pkg() {
     DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" $@
 }
 
-# [cite_start]--- Настройка пользователей [cite: 451-468] ---
+# --- Пользователи (Пароль P@ssw0rd везде) ---
 setup_users() {
     echo ">>> Настройка пользователей..."
     if [[ "$ROLE" == *"srv"* ]]; then
         adduser --gecos "" remote_user --disabled-password || true
         adduser --uid 2026 --gecos "" sshuser --disabled-password || true
-        # ВНИМАНИЕ: Пароль с буквой 'o'
-        echo "sshuser:P@ssword" | chpasswd
+        # ЕДИНЫЙ ПАРОЛЬ: P@ssw0rd (с нулем)
+        echo "sshuser:P@ssw0rd" | chpasswd
         usermod -aG sudo sshuser
         echo 'sshuser ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sshuser
     fi
     if [[ "$ROLE" == *"rtr"* ]]; then
         adduser --gecos "" net_admin --disabled-password || true
-        # ВНИМАНИЕ: Пароль с цифрой '0'
         echo "net_admin:P@ssw0rd" | chpasswd
         usermod -aG sudo net_admin
         echo 'net_admin ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/net_admin
     fi
     if [[ "$ROLE" == "hq-cli" ]]; then
-         echo "root:P@ssword" | chpasswd
+         echo "root:P@ssw0rd" | chpasswd
     fi
 }
 
-# [cite_start]--- Настройка SSH [cite: 469-487] ---
+# --- SSH (Порт 2026) ---
 setup_ssh() {
     echo ">>> Настройка SSH..."
     apt-get update
     install_pkg openssh-server
-    
     echo "Authorized access only" > /etc/issue.net
-    # Принудительно меняем порт, даже если строка закомментирована
+    
     sed -i 's/#Port 22/Port 2026/' /etc/ssh/sshd_config
     sed -i 's/Port 22/Port 2026/' /etc/ssh/sshd_config
-    
     sed -i 's/#Banner none/Banner \/etc\/issue.net/' /etc/ssh/sshd_config
     sed -i 's/#MaxAuthTries 6/MaxAuthTries 2/' /etc/ssh/sshd_config
     
@@ -78,11 +74,12 @@ setup_ssh() {
     systemctl restart ssh
 }
 
-# --- Логика по ролям ---
+# --- ЛОГИКА ПО РОЛЯМ ---
 case $ROLE in
     "hq-srv")
         setup_users
         setup_ssh
+        # Настраиваем интерфейс (Предполагаем прямое подключение без тегов со стороны сервера)
         cat <<EOF > /etc/network/interfaces
 auto $REAL_IFACE
 iface $REAL_IFACE inet static
@@ -91,10 +88,10 @@ iface $REAL_IFACE inet static
 EOF
         systemctl restart networking
         
-        echo ">>> Установка Bind9..."
+        echo ">>> Установка Bind9 и всех зон..."
         install_pkg bind9
         
-        # Конфиги DNS (как и были)
+        # Options
         cat <<EOF > /etc/bind/named.conf.options
 options {
     directory "/var/cache/bind";
@@ -105,6 +102,7 @@ options {
     allow-recursion { any; };
 };
 EOF
+        # Local Zones Definition
         cat <<EOF > /etc/bind/named.conf.local
 zone "au-team.irpo" { type master; file "/etc/bind/zones/db.au-team.irpo"; };
 zone "10.168.192.in-addr.arpa" { type master; file "/etc/bind/zones/db.10.168.192"; };
@@ -114,7 +112,8 @@ zone "2.16.172.in-addr.arpa" { type master; file "/etc/bind/zones/db.2.16.172"; 
 zone "100.168.192.in-addr.arpa" { type master; file "/etc/bind/zones/db.100.168.192"; };
 EOF
         mkdir -p /etc/bind/zones
-        # Зона (сокращено для примера, полная версия была выше, но здесь критичные записи)
+
+        # 1. Прямая зона
         cat <<EOF > /etc/bind/zones/db.au-team.irpo
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
@@ -127,8 +126,42 @@ hq-cli IN A 192.168.20.10
 docker IN A 172.16.1.1
 web    IN A 172.16.2.1
 EOF
-        # (Остальные зоны создаются аналогично, чтобы сэкономить место здесь)
-        # Обратная зона 192.168.100
+
+        # 2. Обратная зона HQ (192.168.10.x)
+        cat <<EOF > /etc/bind/zones/db.10.168.192
+\$TTL 604800
+@ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
+@ IN NS hq-srv.au-team.irpo.
+2 IN PTR hq-srv.au-team.irpo.
+EOF
+
+        # 3. Обратная зона CLI (192.168.20.x)
+        cat <<EOF > /etc/bind/zones/db.20.168.192
+\$TTL 604800
+@ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
+@ IN NS hq-srv.au-team.irpo.
+10 IN PTR hq-cli.au-team.irpo.
+EOF
+
+        # 4. Обратная зона WAN HQ (172.16.1.x)
+        cat <<EOF > /etc/bind/zones/db.1.16.172
+\$TTL 604800
+@ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
+@ IN NS hq-srv.au-team.irpo.
+1 IN PTR docker.au-team.irpo.
+2 IN PTR hq-rtr.au-team.irpo.
+EOF
+
+        # 5. Обратная зона WAN BR (172.16.2.x)
+        cat <<EOF > /etc/bind/zones/db.2.16.172
+\$TTL 604800
+@ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
+@ IN NS hq-srv.au-team.irpo.
+1 IN PTR web.au-team.irpo.
+2 IN PTR br-rtr.au-team.irpo.
+EOF
+
+        # 6. Обратная зона BR (192.168.100.x)
         cat <<EOF > /etc/bind/zones/db.100.168.192
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
@@ -156,28 +189,38 @@ EOF
         echo "ip_gre" >> /etc/modules
         modprobe ip_gre
         
-        # Используем REAL_IFACE вместо ens33
+        # Настройка VLAN (Router-on-a-stick)
+        # ВНИМАНИЕ: Если нет свитча, убедитесь, что ens37 в виртуалке подключен к правильному сегменту
         cat <<EOF > /etc/network/interfaces
 auto lo
 iface lo inet loopback
+
 auto $REAL_IFACE
 iface $REAL_IFACE inet static
     address 172.16.1.2/28
     gateway 172.16.1.1
+
 auto ens37
 iface ens37 inet manual
+
+# VLAN 100 для Сервера
 auto ens37.100
 iface ens37.100 inet static
     address 192.168.10.1/27
     vlan_raw_device ens37
+
+# VLAN 200 для Клиентов
 auto ens37.200
 iface ens37.200 inet static
     address 192.168.20.1/28
     vlan_raw_device ens37
+
+# VLAN 999 (Management)
 auto ens37.999
 iface ens37.999 inet static
     address 192.168.20.1/29
     vlan_raw_device ens37
+
 auto gre30
 iface gre30 inet tunnel
     address 10.0.0.1
@@ -189,18 +232,17 @@ iface gre30 inet tunnel
     mtu 1476
     post-up ip route replace 192.168.100.0/28 via 10.0.0.2
 EOF
-        # ИСПРАВЛЕНИЕ 4: Сначала сеть, потом DHCP
         systemctl restart networking
 
         echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
         sysctl -p
         
-        # Авто-ответ на вопрос iptables
         echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
-        echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
         install_pkg iptables-persistent
         
+        # NAT для VLAN сетей
         iptables -t nat -A POSTROUTING -o ens37.100 -j MASQUERADE
+        iptables -t nat -A POSTROUTING -o ens37.200 -j MASQUERADE
         iptables-save > /etc/iptables/rules.v4
 
         install_pkg isc-dhcp-server
@@ -272,7 +314,6 @@ EOF
         sysctl -p
         
         echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
-        echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
         install_pkg iptables-persistent
         iptables -t nat -A POSTROUTING -o $REAL_IFACE -j MASQUERADE
         iptables-save > /etc/iptables/rules.v4
@@ -298,19 +339,25 @@ EOF
         ;;
 
     "isp")
-        # ВАЖНО: ens37 и ens38 мы оставляем как есть, так как это внутренняя структура стенда
-        # Меняем только WAN интерфейс
+        # Добавляем маршруты прямо в конфиг интерфейса, чтобы они применялись при старте
         cat <<EOF > /etc/network/interfaces
 auto lo
 iface lo inet loopback
+
 auto $REAL_IFACE
 iface $REAL_IFACE inet dhcp
+
 auto ens37
 iface ens37 inet static
     address 172.16.1.1/28
+    # Маршрут к офису HQ
+    up ip route add 192.168.10.0/27 via 172.16.1.2
+
 auto ens38
 iface ens38 inet static
     address 172.16.2.1/28
+    # Маршрут к офису Branch
+    up ip route add 192.168.100.0/27 via 172.16.2.2
 EOF
         systemctl restart networking
 
@@ -339,34 +386,6 @@ EOF
 search au.team.irpo
 domain au.team.irpo
 nameserver 192.168.10.2
-EOF
-        systemctl restart networking
-        ;;
-
-    "hq-sw")
-        install_pkg openvswitch-switch
-        ovs-vsctl del-br br-hq 2>/dev/null
-        ovs-vsctl add-br br-hq
-        # Здесь мы предполагаем, что trunk-интерфейс - это REAL_IFACE
-        ovs-vsctl add-port br-hq $REAL_IFACE trunks=100,200,999
-        ovs-vsctl add-port br-hq ens37 tag=100
-        ovs-vsctl add-port br-hq ens38 tag=200
-        ovs-vsctl add-port br-hq mgmt0 tag=999 -- set interface mgmt0 type=internal
-        cat <<EOF > /etc/network/interfaces
-auto lo
-iface lo inet loopback
-allow-hotplug $REAL_IFACE
-iface $REAL_IFACE inet manual
-allow-hotplug ens37
-iface ens37 inet manual
-allow-hotplug ens38
-iface ens38 inet manual
-auto mgmt0
-iface mgmt0 inet static
-    address 192.168.250.2/29
-    ovs_bridge br-hq
-    ovs_type OVSIntPort
-    ovs_options tag=999
 EOF
         systemctl restart networking
         ;;
