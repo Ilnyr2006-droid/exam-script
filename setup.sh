@@ -10,9 +10,6 @@ REAL_IFACE=$(ip -o link show | awk -F': ' '{print $2}' | grep -v lo | head -n 1)
 if [ -z "$REAL_IFACE" ]; then REAL_IFACE="ens33"; fi
 echo ">>> Обнаружен основной интерфейс: $REAL_IFACE"
 
-# --- Чиним DNS для установки пакетов ---
-echo "nameserver 8.8.8.8" > /etc/resolv.conf
-
 ROLE=$1
 DOMAIN="au-team.irpo"
 VALID_ROLES="hq-srv br-srv hq-rtr br-rtr isp hq-cli"
@@ -109,6 +106,13 @@ cidr_to_netmask() {
 HQ_CLI_NET_ADDR="${HQ_CLI_NET%%/*}"
 HQ_CLI_NET_CIDR="${HQ_CLI_NET##*/}"
 HQ_CLI_NETMASK="$(cidr_to_netmask "$HQ_CLI_NET_CIDR")"
+
+# --- DNS по заданию (везде одинаковый) ---
+cat <<EOF > /etc/resolv.conf
+search au.team.irpo
+domain au.team.irpo
+nameserver $HQ_SRV_IP
+EOF
 
 # --- Имя и Время ---
 hostnamectl set-hostname "${ROLE}.${DOMAIN}"
@@ -478,11 +482,6 @@ iface $REAL_IFACE inet manual
 auto ${REAL_IFACE}.200
 iface ${REAL_IFACE}.200 inet dhcp
     vlan_raw_device $REAL_IFACE
-EOF
-        cat <<EOF > /etc/resolv.conf
-search au.team.irpo
-domain au.team.irpo
-nameserver $HQ_SRV_IP
 EOF
         systemctl restart networking
         ;;
