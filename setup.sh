@@ -360,6 +360,10 @@ EOF
         install_pkg frr
         sed -i 's/ospfd=no/ospfd=yes/' /etc/frr/daemons
         systemctl restart frr
+        # Проверка vtysh (иногда в /usr/bin или /usr/lib/frr)
+        if ! command -v vtysh >/dev/null 2>&1 && [ ! -x /usr/lib/frr/vtysh ]; then
+            install_pkg frr-pythontools
+        fi
         cat <<EOF > /etc/frr/frr.conf
 frr version 8.1
 frr defaults traditional
@@ -418,6 +422,10 @@ EOF
         install_pkg frr
         sed -i 's/ospfd=no/ospfd=yes/' /etc/frr/daemons
         systemctl restart frr
+        # Проверка vtysh (иногда в /usr/bin или /usr/lib/frr)
+        if ! command -v vtysh >/dev/null 2>&1 && [ ! -x /usr/lib/frr/vtysh ]; then
+            install_pkg frr-pythontools
+        fi
         cat <<EOF > /etc/frr/frr.conf
 frr version 8.1
 frr defaults traditional
