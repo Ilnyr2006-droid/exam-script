@@ -7,6 +7,9 @@ ISO_FILE="/home/user/Загрузки/Additional.iso"
 ISO_MOUNT="/mnt/additional"
 DOMAIN="au-team.irpo"
 
+# --- Пути для iptables и других системных утилит ---
+export PATH=$PATH:/usr/sbin:/sbin:/usr/bin:/bin
+
 # --- Интерфейсы по ролям ---
 REAL_IFACE=$(ip -o link show | awk -F': ' '{print $2}' | grep -v lo | head -n 1)
 if [ -z "$REAL_IFACE" ]; then REAL_IFACE="ens33"; fi
