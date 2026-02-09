@@ -151,12 +151,12 @@ host_key_checking = False
 CONFIG
         cat <<CONFIG > /etc/ansible/hosts
 [hq]
-HQ-SRV ansible_host=${HQ_SRV_IP:-192.168.10.2} ansible_user=sshuser ansible_port=2026 ansible_ssh_pass=$PASS_ADM
-HQ-CLI ansible_host=${HQ_CLI_IP:-192.168.20.10} ansible_user=sshuser ansible_port=22 ansible_ssh_pass=$PASS_ADM
-HQ-RTR ansible_host=${HQ_RTR_WAN_IP:-172.16.1.2} ansible_user=net_admin ansible_port=22 ansible_ssh_pass=$PASS_ADM
+HQ-SRV ansible_host=hq-srv.${DOMAIN} ansible_user=sshuser ansible_port=2026 ansible_ssh_pass=$PASS_ADM
+HQ-CLI ansible_host=hq-cli.${DOMAIN} ansible_user=sshuser ansible_port=2026 ansible_ssh_pass=$PASS_ADM
+HQ-RTR ansible_host=hq-rtr.${DOMAIN} ansible_user=net_admin ansible_port=2026 ansible_ssh_pass=$PASS_ADM
 [br]
 BR-SRV ansible_connection=local ansible_user=root
-BR-RTR ansible_host=${BR_RTR_WAN_IP:-172.16.2.2} ansible_user=net_admin ansible_port=22 ansible_ssh_pass=$PASS_ADM
+BR-RTR ansible_host=br-rtr.${DOMAIN} ansible_user=net_admin ansible_port=2026 ansible_ssh_pass=$PASS_ADM
 [all:vars]
 ansible_become=yes
 ansible_python_interpreter=/usr/bin/python3
@@ -266,6 +266,9 @@ CONFIG
         mysql -e "CREATE DATABASE IF NOT EXISTS webdb;"
         mysql -e "CREATE USER IF NOT EXISTS 'web'@'localhost' IDENTIFIED BY '$PASS_ADM';"
         mysql -e "GRANT ALL PRIVILEGES ON webdb.* TO 'web'@'localhost';"
+        # Пользователь для приложения (user)
+        mysql -e "CREATE USER IF NOT EXISTS 'user'@'localhost' IDENTIFIED BY '$PASS_ADM';"
+        mysql -e "GRANT ALL PRIVILEGES ON webdb.* TO 'user'@'localhost';"
         mysql -e "FLUSH PRIVILEGES;"
         
         mkdir -p $ISO_MOUNT
@@ -293,6 +296,12 @@ CONFIG
 
         echo ">>> HQ-CLI: Chrony..."
         setup_chrony_client
+
+        echo ">>> HQ-CLI: SSH..."
+        install_pkg openssh-server
+        sed -i 's/#Port 22/Port 2026/' /etc/ssh/sshd_config
+        sed -i 's/Port 22/Port 2026/' /etc/ssh/sshd_config
+        systemctl restart ssh
 
         echo ">>> HQ-CLI: Join Domain..."
         install_pkg realmd sssd sssd-tools libnss-sss libpam-sss adcli oddjob oddjob-mkhomedir packagekit samba-common-bin krb5-user nfs-common
