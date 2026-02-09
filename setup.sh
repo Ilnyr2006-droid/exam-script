@@ -15,9 +15,15 @@ echo "nameserver 8.8.8.8" > /etc/resolv.conf
 
 ROLE=$1
 DOMAIN="au-team.irpo"
+VALID_ROLES="hq-srv br-srv hq-rtr br-rtr isp hq-cli"
 
 if [ -z "$ROLE" ]; then
     echo "Использование: ./setup.sh [роль]"
+    exit 1
+fi
+if ! echo "$VALID_ROLES" | grep -qw "$ROLE"; then
+    echo "Ошибка: неизвестная роль '$ROLE'"
+    echo "Доступные роли: $VALID_ROLES"
     exit 1
 fi
 
@@ -160,12 +166,18 @@ case $ROLE in
     "hq-srv")
         setup_users
         setup_ssh
-        # Настраиваем интерфейс (Предполагаем прямое подключение без тегов со стороны сервера)
+        # VLAN-интерфейс для HQ-SRV (ens33.100)
+        echo "8021q" >> /etc/modules
+        modprobe 8021q
         cat <<EOF > /etc/network/interfaces
 auto $REAL_IFACE
-iface $REAL_IFACE inet static
+iface $REAL_IFACE inet manual
+
+auto ${REAL_IFACE}.100
+iface ${REAL_IFACE}.100 inet static
     address $HQ_SRV_IP_CIDR
     gateway $HQ_SRV_GW
+    vlan_raw_device $REAL_IFACE
 EOF
         systemctl restart networking
         
@@ -461,7 +473,11 @@ EOF
     "hq-cli")
         cat <<EOF > /etc/network/interfaces
 auto $REAL_IFACE
-iface $REAL_IFACE inet dhcp
+iface $REAL_IFACE inet manual
+
+auto ${REAL_IFACE}.200
+iface ${REAL_IFACE}.200 inet dhcp
+    vlan_raw_device $REAL_IFACE
 EOF
         cat <<EOF > /etc/resolv.conf
 search au.team.irpo
