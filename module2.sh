@@ -40,6 +40,15 @@ install_pkg() {
     DEBIAN_FRONTEND=noninteractive apt-get install -y $@
 }
 
+setup_chrony_client() {
+    install_pkg chrony
+    cat <<CONFIG > /etc/chrony/chrony.conf
+server 172.16.1.1 iburst
+CONFIG
+    systemctl restart chrony
+    systemctl enable chrony
+}
+
 echo "=== ЗАПУСК: $ROLE ==="
 
 case $ROLE in
@@ -96,6 +105,9 @@ CONFIG
         HQ_CLI_IP="$(get_ip "${REAL_IFACE}.200")"
         HQ_RTR_WAN_IP="$(get_ip "$REAL_IFACE")"
         BR_RTR_WAN_IP="$(get_ip "$REAL_IFACE")"
+
+        echo ">>> BR-SRV: Chrony..."
+        setup_chrony_client
 
         echo ">>> BR-SRV: Samba..."
         install_pkg samba winbind libnss-winbind krb5-user smbclient ldb-tools python3-cryptography expect sshpass
@@ -183,10 +195,10 @@ services:
     image: mariadb:10.11
     container_name: db
     environment:
-      - MYSQL_ROOT_PASSWORD: root$PASS_ADM
-      - MYSQL_DATABASE: testdb
-      - MYSQL_USER: test
-      - MYSQL_PASSWORD: $PASS_ADM
+      - MYSQL_ROOT_PASSWORD=root$PASS_ADM
+      - MYSQL_DATABASE=testdb
+      - MYSQL_USER=test
+      - MYSQL_PASSWORD=$PASS_ADM
     volumes:
       - db_data:/var/lib/mysql
     restart: unless-stopped
@@ -194,6 +206,17 @@ volumes:
   db_data:
 CONFIG
                 cd /opt/testapp && docker-compose up -d
+                # Перезапускаем приложение после поднятия БД
+                sleep 5
+                docker restart db >/dev/null 2>&1 || true
+                sleep 5
+                docker restart testapp >/dev/null 2>&1 || true
+                # Проверка доступности приложения
+                if curl -sSf http://localhost:8080 >/dev/null 2>&1; then
+                    echo ">>> TESTAPP: OK (http://localhost:8080)"
+                else
+                    echo ">>> TESTAPP: НЕ ДОСТУПЕН на http://localhost:8080 (проверьте docker logs testapp)"
+                fi
             fi
         fi
         ;;
@@ -201,6 +224,9 @@ CONFIG
     "hq-srv")
         HQ_SRV_IP="$(get_ip "${REAL_IFACE}.100")"
         BR_SRV_IP="$(get_ip "${REAL_IFACE}.100")"
+
+        echo ">>> HQ-SRV: Chrony..."
+        setup_chrony_client
 
         echo ">>> HQ-SRV: DNS..."
         install_pkg bind9
@@ -250,6 +276,9 @@ CONFIG
                 cp $ISO_MOUNT/web/index.php /var/www/html/
                 mkdir -p /var/www/html/images
                 cp $ISO_MOUNT/web/logo.png /var/www/html/images/
+                # Исправляем учетные данные БД в index.php
+                sed -i 's/password = "password";/password = "P@ssw0rd";/' /var/www/html/index.php
+                sed -i 's/dbname = "db";/dbname = "webdb";/' /var/www/html/index.php
                 chown -R www-data:www-data /var/www/html/
                 chmod -R 755 /var/www/html/
                 rm -f /var/www/html/index.html
@@ -261,6 +290,9 @@ CONFIG
 
     "hq-cli")
         HQ_SRV_IP="$(get_ip "${REAL_IFACE}.100")"
+
+        echo ">>> HQ-CLI: Chrony..."
+        setup_chrony_client
 
         echo ">>> HQ-CLI: Join Domain..."
         install_pkg realmd sssd sssd-tools libnss-sss libpam-sss adcli oddjob oddjob-mkhomedir packagekit samba-common-bin krb5-user nfs-common
@@ -293,17 +325,15 @@ CONFIG
         echo ">>> ROUTER: NAT & Chrony..."
         install_pkg iptables iptables-persistent
         
-        iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 8080 -j DNAT --to-destination $DEST:8080
-        iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 80 -j DNAT --to-destination $DEST:80
-        iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 2026 -j DNAT --to-destination $DEST:2026
-        iptables -A FORWARD -p tcp -d $DEST --dport 8080 -j ACCEPT
-        iptables -A FORWARD -p tcp -d $DEST --dport 80 -j ACCEPT
-        iptables -A FORWARD -p tcp -d $DEST --dport 2026 -j ACCEPT
-        iptables-save > /etc/iptables/rules.v4
+        /usr/sbin/iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 8080 -j DNAT --to-destination $DEST:8080
+        /usr/sbin/iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 80 -j DNAT --to-destination $DEST:80
+        /usr/sbin/iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 2026 -j DNAT --to-destination $DEST:2026
+        /usr/sbin/iptables -A FORWARD -p tcp -d $DEST --dport 8080 -j ACCEPT
+        /usr/sbin/iptables -A FORWARD -p tcp -d $DEST --dport 80 -j ACCEPT
+        /usr/sbin/iptables -A FORWARD -p tcp -d $DEST --dport 2026 -j ACCEPT
+        /usr/sbin/iptables-save > /etc/iptables/rules.v4
 
-        install_pkg chrony
-        echo "server 172.16.1.1 iburst" > /etc/chrony/chrony.conf
-        systemctl restart chrony
+        setup_chrony_client
         ;;
 esac
  echo "--- ГОТОВО ---"
