@@ -23,6 +23,87 @@ fi
 
 echo "=== НАСТРОЙКА РОЛИ: $ROLE ==="
 
+# --- Ввод IP-адресов (Enter = оставить значение по умолчанию) ---
+prompt_var() {
+    local var_name="$1"
+    local default_val="$2"
+    local prompt_text="$3"
+    local input=""
+    read -r -p "$prompt_text [$default_val]: " input
+    if [ -z "$input" ]; then
+        eval "$var_name=\"$default_val\""
+    else
+        eval "$var_name=\"$input\""
+    fi
+}
+
+# IP адреса (с CIDR там, где нужно)
+prompt_var HQ_SRV_IP_CIDR "192.168.10.2/27" "HQ-SRV IP/CIDR"
+prompt_var BR_SRV_IP_CIDR "192.168.100.2/27" "BR-SRV IP/CIDR"
+prompt_var HQ_RTR_WAN_IP_CIDR "172.16.1.2/28" "HQ-RTR WAN IP/CIDR"
+prompt_var BR_RTR_WAN_IP_CIDR "172.16.2.2/28" "BR-RTR WAN IP/CIDR"
+prompt_var HQ_RTR_VLAN100_IP_CIDR "192.168.10.1/27" "HQ-RTR VLAN100 IP/CIDR"
+prompt_var HQ_RTR_VLAN200_IP_CIDR "192.168.20.1/28" "HQ-RTR VLAN200 IP/CIDR"
+prompt_var HQ_RTR_VLAN999_IP_CIDR "192.168.20.1/29" "HQ-RTR VLAN999 IP/CIDR"
+prompt_var BR_RTR_LAN_IP_CIDR "192.168.100.1/27" "BR-RTR LAN IP/CIDR"
+prompt_var HQ_CLI_IP_CIDR "192.168.20.10/28" "HQ-CLI IP/CIDR"
+prompt_var ISP_HQ_IP_CIDR "172.16.1.1/28" "ISP IP toward HQ (ens37) IP/CIDR"
+prompt_var ISP_BR_IP_CIDR "172.16.2.1/28" "ISP IP toward BR (ens38) IP/CIDR"
+
+# Сети (для маршрутов, DHCP, OSPF)
+prompt_var HQ_SRV_NET "192.168.10.0/27" "HQ-SRV network/CIDR"
+prompt_var HQ_CLI_NET "192.168.20.0/28" "HQ-CLI network/CIDR"
+prompt_var BR_SRV_NET "192.168.100.0/27" "BR-SRV network/CIDR"
+prompt_var GRE_NET "10.0.0.0/30" "GRE network/CIDR"
+prompt_var GRE_HQ_IP "10.0.0.1" "GRE IP on HQ-RTR (no CIDR)"
+prompt_var GRE_BR_IP "10.0.0.2" "GRE IP on BR-RTR (no CIDR)"
+prompt_var GRE_NETMASK "255.255.255.252" "GRE netmask"
+prompt_var DHCP_RANGE_START "192.168.20.2" "DHCP range start (HQ-CLI)"
+prompt_var DHCP_RANGE_END "192.168.20.14" "DHCP range end (HQ-CLI)"
+
+# Подсказка: шлюзы берем как IP ISP или .1 внутри подсети
+HQ_SRV_GW="${HQ_RTR_VLAN100_IP_CIDR%%/*}"
+BR_SRV_GW="${BR_RTR_LAN_IP_CIDR%%/*}"
+HQ_RTR_WAN_GW="${ISP_HQ_IP_CIDR%%/*}"
+BR_RTR_WAN_GW="${ISP_BR_IP_CIDR%%/*}"
+HQ_CLI_GW="${HQ_RTR_VLAN200_IP_CIDR%%/*}"
+
+# Короткие IP без CIDR
+HQ_SRV_IP="${HQ_SRV_IP_CIDR%%/*}"
+BR_SRV_IP="${BR_SRV_IP_CIDR%%/*}"
+HQ_RTR_WAN_IP="${HQ_RTR_WAN_IP_CIDR%%/*}"
+BR_RTR_WAN_IP="${BR_RTR_WAN_IP_CIDR%%/*}"
+HQ_RTR_VLAN100_IP="${HQ_RTR_VLAN100_IP_CIDR%%/*}"
+HQ_RTR_VLAN200_IP="${HQ_RTR_VLAN200_IP_CIDR%%/*}"
+HQ_RTR_VLAN999_IP="${HQ_RTR_VLAN999_IP_CIDR%%/*}"
+BR_RTR_LAN_IP="${BR_RTR_LAN_IP_CIDR%%/*}"
+HQ_CLI_IP="${HQ_CLI_IP_CIDR%%/*}"
+ISP_HQ_IP="${ISP_HQ_IP_CIDR%%/*}"
+ISP_BR_IP="${ISP_BR_IP_CIDR%%/*}"
+
+last_octet() { echo "${1##*.}"; }
+cidr_to_netmask() {
+    local cidr="$1"
+    local i mask=""
+    for i in 1 2 3 4; do
+        local octet
+        if [ "$cidr" -ge 8 ]; then
+            octet=255
+            cidr=$((cidr - 8))
+        else
+            octet=$((256 - 2 ** (8 - cidr)))
+            cidr=0
+        fi
+        mask+="$octet"
+        [ "$i" -lt 4 ] && mask+="."
+    done
+    echo "$mask"
+}
+
+HQ_CLI_NET_ADDR="${HQ_CLI_NET%%/*}"
+HQ_CLI_NET_CIDR="${HQ_CLI_NET##*/}"
+HQ_CLI_NETMASK="$(cidr_to_netmask "$HQ_CLI_NET_CIDR")"
+
 # --- Имя и Время ---
 hostnamectl set-hostname "${ROLE}.${DOMAIN}"
 timedatectl set-timezone Europe/Moscow
@@ -83,8 +164,8 @@ case $ROLE in
         cat <<EOF > /etc/network/interfaces
 auto $REAL_IFACE
 iface $REAL_IFACE inet static
-    address 192.168.10.2/27
-    gateway 192.168.10.1
+    address $HQ_SRV_IP_CIDR
+    gateway $HQ_SRV_GW
 EOF
         systemctl restart networking
         
@@ -118,13 +199,13 @@ EOF
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
-hq-srv IN A 192.168.10.2
-hq-rtr IN A 172.16.1.2
-br-rtr IN A 172.16.2.2
-br-srv IN A 192.168.100.2
-hq-cli IN A 192.168.20.10
-docker IN A 172.16.1.1
-web    IN A 172.16.2.1
+hq-srv IN A $HQ_SRV_IP
+hq-rtr IN A $HQ_RTR_WAN_IP
+br-rtr IN A $BR_RTR_WAN_IP
+br-srv IN A $BR_SRV_IP
+hq-cli IN A $HQ_CLI_IP
+docker IN A $ISP_HQ_IP
+web    IN A $ISP_BR_IP
 EOF
 
         # 2. Обратная зона HQ (192.168.10.x)
@@ -132,7 +213,7 @@ EOF
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
-2 IN PTR hq-srv.au-team.irpo.
+$(last_octet "$HQ_SRV_IP") IN PTR hq-srv.au-team.irpo.
 EOF
 
         # 3. Обратная зона CLI (192.168.20.x)
@@ -140,7 +221,7 @@ EOF
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
-10 IN PTR hq-cli.au-team.irpo.
+$(last_octet "$HQ_CLI_IP") IN PTR hq-cli.au-team.irpo.
 EOF
 
         # 4. Обратная зона WAN HQ (172.16.1.x)
@@ -148,8 +229,8 @@ EOF
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
-1 IN PTR docker.au-team.irpo.
-2 IN PTR hq-rtr.au-team.irpo.
+$(last_octet "$ISP_HQ_IP") IN PTR docker.au-team.irpo.
+$(last_octet "$HQ_RTR_WAN_IP") IN PTR hq-rtr.au-team.irpo.
 EOF
 
         # 5. Обратная зона WAN BR (172.16.2.x)
@@ -157,8 +238,8 @@ EOF
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
-1 IN PTR web.au-team.irpo.
-2 IN PTR br-rtr.au-team.irpo.
+$(last_octet "$ISP_BR_IP") IN PTR web.au-team.irpo.
+$(last_octet "$BR_RTR_WAN_IP") IN PTR br-rtr.au-team.irpo.
 EOF
 
         # 6. Обратная зона BR (192.168.100.x)
@@ -166,7 +247,7 @@ EOF
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
-2 IN PTR br-srv.au-team.irpo.
+$(last_octet "$BR_SRV_IP") IN PTR br-srv.au-team.irpo.
 EOF
         systemctl restart bind9
         ;;
@@ -177,8 +258,8 @@ EOF
         cat <<EOF > /etc/network/interfaces
 auto $REAL_IFACE
 iface $REAL_IFACE inet static
-    address 192.168.100.2/27
-    gateway 192.168.100.1
+    address $BR_SRV_IP_CIDR
+    gateway $BR_SRV_GW
 EOF
         systemctl restart networking
         ;;
@@ -197,8 +278,8 @@ iface lo inet loopback
 
 auto $REAL_IFACE
 iface $REAL_IFACE inet static
-    address 172.16.1.2/28
-    gateway 172.16.1.1
+    address $HQ_RTR_WAN_IP_CIDR
+    gateway $HQ_RTR_WAN_GW
 
 auto ens37
 iface ens37 inet manual
@@ -206,31 +287,31 @@ iface ens37 inet manual
 # VLAN 100 для Сервера
 auto ens37.100
 iface ens37.100 inet static
-    address 192.168.10.1/27
+    address $HQ_RTR_VLAN100_IP_CIDR
     vlan_raw_device ens37
 
 # VLAN 200 для Клиентов
 auto ens37.200
 iface ens37.200 inet static
-    address 192.168.20.1/28
+    address $HQ_RTR_VLAN200_IP_CIDR
     vlan_raw_device ens37
 
 # VLAN 999 (Management)
 auto ens37.999
 iface ens37.999 inet static
-    address 192.168.20.1/29
+    address $HQ_RTR_VLAN999_IP_CIDR
     vlan_raw_device ens37
 
 auto gre30
 iface gre30 inet tunnel
-    address 10.0.0.1
-    netmask 255.255.255.252
+    address $GRE_HQ_IP
+    netmask $GRE_NETMASK
     mode gre
-    local 172.16.1.2
-    endpoint 172.16.2.2
+    local $HQ_RTR_WAN_IP
+    endpoint $BR_RTR_WAN_IP
     ttl 255
     mtu 1476
-    post-up ip route replace 192.168.100.0/28 via 10.0.0.2
+    post-up ip route replace $BR_SRV_NET via $GRE_BR_IP
 EOF
         systemctl restart networking
 
@@ -251,11 +332,11 @@ EOF
 default-lease-time 600;
 max-lease-time 7200;
 authoritative;
-subnet 192.168.20.0 netmask 255.255.255.240 {
-    range 192.168.20.2 192.168.20.14;
-    option routers 192.168.20.1;
+subnet $HQ_CLI_NET_ADDR netmask $HQ_CLI_NETMASK {
+    range $DHCP_RANGE_START $DHCP_RANGE_END;
+    option routers $HQ_CLI_GW;
     option domain-name "au-team.irpo";
-    option domain-name-servers 192.168.10.2;
+    option domain-name-servers $HQ_SRV_IP;
 }
 EOF
         systemctl restart isc-dhcp-server
@@ -272,8 +353,8 @@ interface gre30
  ip ospf message-digest-key 1 md5 1c+rYtGm
 !
 router ospf
- network 192.168.100.0/27 area 0
- network 10.0.0.0/30 area 0
+ network $BR_SRV_NET area 0
+ network $GRE_NET area 0
 !
 line vty
 EOF
@@ -291,22 +372,22 @@ auto lo
 iface lo inet loopback
 auto $REAL_IFACE
 iface $REAL_IFACE inet static
-    address 172.16.2.2/28
-    gateway 172.16.2.1
+    address $BR_RTR_WAN_IP_CIDR
+    gateway $BR_RTR_WAN_GW
 auto ens37
 iface ens37 inet static
-    address 192.168.100.1/27
+    address $BR_RTR_LAN_IP_CIDR
 auto gre30
 iface gre30 inet tunnel
-    address 10.0.0.2
-    netmask 255.255.255.252
+    address $GRE_BR_IP
+    netmask $GRE_NETMASK
     mode gre
-    local 172.16.2.2
-    endpoint 172.16.1.2
+    local $BR_RTR_WAN_IP
+    endpoint $HQ_RTR_WAN_IP
     ttl 255
     mtu 1476
-    post-up ip route replace 192.168.10.0/28 via 10.0.0.1
-    post-up ip route replace 192.168.20.0/28 via 10.0.0.1
+    post-up ip route replace $HQ_SRV_NET via $GRE_HQ_IP
+    post-up ip route replace $HQ_CLI_NET via $GRE_HQ_IP
 EOF
         systemctl restart networking
 
@@ -330,8 +411,8 @@ interface gre30
  ip ospf message-digest-key 1 md5 1c+rYtGm
 !
 router ospf
- network 192.168.0.0/28 area 0
- network 10.0.0.0/30 area 0
+ network $BR_SRV_NET area 0
+ network $GRE_NET area 0
 !
 line vty
 EOF
@@ -349,15 +430,15 @@ iface $REAL_IFACE inet dhcp
 
 auto ens37
 iface ens37 inet static
-    address 172.16.1.1/28
+    address $ISP_HQ_IP_CIDR
     # Маршрут к офису HQ
-    up ip route add 192.168.10.0/27 via 172.16.1.2
+    up ip route add $HQ_SRV_NET via $HQ_RTR_WAN_IP
 
 auto ens38
 iface ens38 inet static
-    address 172.16.2.1/28
+    address $ISP_BR_IP_CIDR
     # Маршрут к офису Branch
-    up ip route add 192.168.100.0/27 via 172.16.2.2
+    up ip route add $BR_SRV_NET via $BR_RTR_WAN_IP
 EOF
         systemctl restart networking
 
@@ -385,7 +466,7 @@ EOF
         cat <<EOF > /etc/resolv.conf
 search au.team.irpo
 domain au.team.irpo
-nameserver 192.168.10.2
+nameserver $HQ_SRV_IP
 EOF
         systemctl restart networking
         ;;
