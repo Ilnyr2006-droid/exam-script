@@ -1,4 +1,3 @@
-cat << 'EOF' > module2.sh
 #!/bin/bash
 # МОДУЛЬ 2 (CLEAN VERSION)
 
@@ -6,6 +5,28 @@ ROLE=$1
 PASS_ADM="P@ssw0rd"
 ISO_FILE="/home/user/Загрузки/Additional.iso"
 ISO_MOUNT="/mnt/additional"
+DOMAIN="au-team.irpo"
+
+# --- Интерфейсы по ролям ---
+REAL_IFACE=$(ip -o link show | awk -F': ' '{print $2}' | grep -v lo | head -n 1)
+if [ -z "$REAL_IFACE" ]; then REAL_IFACE="ens33"; fi
+
+get_ip() {
+    local iface="$1"
+    ip -o -4 addr show dev "$iface" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n 1
+}
+
+# Значения будут определены по ролям
+HQ_SRV_IP=""
+BR_SRV_IP=""
+HQ_CLI_IP=""
+HQ_RTR_WAN_IP=""
+BR_RTR_WAN_IP=""
+ISP_HQ_IP=""
+ISP_BR_IP=""
+HQ_RTR_VLAN100_IP=""
+HQ_RTR_VLAN200_IP=""
+BR_RTR_LAN_IP=""
 
 if [ -z "$ROLE" ]; then
     echo "Использование: ./module2.sh [роль]"
@@ -20,6 +41,9 @@ echo "=== ЗАПУСК: $ROLE ==="
 
 case $ROLE in
     "isp")
+        ISP_HQ_IP="$(get_ip ens37)"
+        ISP_BR_IP="$(get_ip ens38)"
+
         echo ">>> ISP: Chrony..."
         install_pkg chrony nginx apache2-utils
         cat <<CONFIG > /etc/chrony/chrony.conf
@@ -64,6 +88,12 @@ CONFIG
         ;;
 
     "br-srv")
+        BR_SRV_IP="$(get_ip "$REAL_IFACE")"
+        HQ_SRV_IP="$(get_ip "${REAL_IFACE}.100")"
+        HQ_CLI_IP="$(get_ip "${REAL_IFACE}.200")"
+        HQ_RTR_WAN_IP="$(get_ip "$REAL_IFACE")"
+        BR_RTR_WAN_IP="$(get_ip "$REAL_IFACE")"
+
         echo ">>> BR-SRV: Samba..."
         install_pkg samba winbind libnss-winbind krb5-user smbclient ldb-tools python3-cryptography expect sshpass
         cat <<CONFIG > /etc/krb5.conf
@@ -106,12 +136,12 @@ host_key_checking = False
 CONFIG
         cat <<CONFIG > /etc/ansible/hosts
 [hq]
-HQ-SRV ansible_host=192.168.10.2 ansible_user=sshuser ansible_port=2026 ansible_ssh_pass=$PASS_ADM
-HQ-CLI ansible_host=192.168.20.10 ansible_user=sshuser ansible_port=22 ansible_ssh_pass=$PASS_ADM
-HQ-RTR ansible_host=172.16.1.2 ansible_user=net_admin ansible_port=22 ansible_ssh_pass=$PASS_ADM
+HQ-SRV ansible_host=${HQ_SRV_IP:-192.168.10.2} ansible_user=sshuser ansible_port=2026 ansible_ssh_pass=$PASS_ADM
+HQ-CLI ansible_host=${HQ_CLI_IP:-192.168.20.10} ansible_user=sshuser ansible_port=22 ansible_ssh_pass=$PASS_ADM
+HQ-RTR ansible_host=${HQ_RTR_WAN_IP:-172.16.1.2} ansible_user=net_admin ansible_port=22 ansible_ssh_pass=$PASS_ADM
 [br]
 BR-SRV ansible_connection=local ansible_user=root
-BR-RTR ansible_host=172.16.2.2 ansible_user=net_admin ansible_port=22 ansible_ssh_pass=$PASS_ADM
+BR-RTR ansible_host=${BR_RTR_WAN_IP:-172.16.2.2} ansible_user=net_admin ansible_port=22 ansible_ssh_pass=$PASS_ADM
 [all:vars]
 ansible_become=yes
 ansible_python_interpreter=/usr/bin/python3
@@ -166,6 +196,9 @@ CONFIG
         ;;
 
     "hq-srv")
+        HQ_SRV_IP="$(get_ip "${REAL_IFACE}.100")"
+        BR_SRV_IP="$(get_ip "${REAL_IFACE}.100")"
+
         echo ">>> HQ-SRV: DNS..."
         install_pkg bind9
         cat <<CONFIG >> /etc/bind/zones/db.au-team.irpo
@@ -177,7 +210,7 @@ _kpasswd._udp.au-team.irpo      IN      SRV     0 100 464       br-srv.au-team.i
 _ldap._tcp.dc._msdcs.au-team.irpo       IN      SRV     0 100 389       br-srv.au-team.irpo.
 CONFIG
         echo 'dlz "samba-dlz" { database "dlopen /usr/lib/x86_64-linux-gnu/samba/bind9/dlz_bind9_11.so"; };' >> /etc/bind/named.conf.local
-        sed -i '/};/i allow-update { 192.168.100.2; };' /etc/bind/named.conf.options
+        sed -i "/};/i allow-update { ${BR_SRV_IP:-192.168.100.2}; };" /etc/bind/named.conf.options
         systemctl restart bind9
 
         echo ">>> HQ-SRV: RAID..."
@@ -224,14 +257,16 @@ CONFIG
         ;;
 
     "hq-cli")
+        HQ_SRV_IP="$(get_ip "${REAL_IFACE}.100")"
+
         echo ">>> HQ-CLI: Join Domain..."
         install_pkg realmd sssd sssd-tools libnss-sss libpam-sss adcli oddjob oddjob-mkhomedir packagekit samba-common-bin krb5-user nfs-common
         echo $PASS_ADM | realm join -v --user=Administrator AU-TEAM.IRPO
-        echo "%domain\ admins ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+        echo "%domain\\ admins ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
         echo ">>> HQ-CLI: NFS Mount..."
         mkdir -p /mnt/nfs
-        echo "192.168.10.2:/raid/nfs   /mnt/nfs   nfs   defaults   0   0" >> /etc/fstab
+        echo "${HQ_SRV_IP:-192.168.10.2}:/raid/nfs   /mnt/nfs   nfs   defaults   0   0" >> /etc/fstab
         mount -a
         
         echo ">>> HQ-CLI: Ansible User..."
@@ -242,8 +277,17 @@ CONFIG
         ;;
 
     "hq-rtr"|"br-rtr")
+        if [ "$ROLE" == "hq-rtr" ]; then
+            HQ_SRV_IP="$(get_ip "${REAL_IFACE}.100")"
+            HQ_RTR_WAN_IP="$(get_ip "$REAL_IFACE")"
+            DEST="${HQ_SRV_IP:-192.168.10.2}"
+        else
+            BR_SRV_IP="$(get_ip ens37)"
+            BR_RTR_WAN_IP="$(get_ip "$REAL_IFACE")"
+            DEST="${BR_SRV_IP:-192.168.100.2}"
+        fi
+
         echo ">>> ROUTER: NAT & Chrony..."
-        if [ "$ROLE" == "hq-rtr" ]; then DEST="192.168.10.2"; else DEST="192.168.100.2"; fi
         
         iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 8080 -j DNAT --to-destination $DEST:8080
         iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 80 -j DNAT --to-destination $DEST:80
@@ -258,5 +302,4 @@ CONFIG
         systemctl restart chrony
         ;;
 esac
-echo "--- ГОТОВО ---"
-EOF
+ echo "--- ГОТОВО ---"
