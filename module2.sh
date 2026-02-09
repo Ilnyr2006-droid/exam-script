@@ -288,6 +288,7 @@ CONFIG
         fi
 
         echo ">>> ROUTER: NAT & Chrony..."
+        install_pkg iptables iptables-persistent
         
         iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 8080 -j DNAT --to-destination $DEST:8080
         iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 80 -j DNAT --to-destination $DEST:80
