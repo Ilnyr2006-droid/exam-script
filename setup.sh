@@ -106,6 +106,19 @@ cidr_to_netmask() {
 HQ_CLI_NET_ADDR="${HQ_CLI_NET%%/*}"
 HQ_CLI_NET_CIDR="${HQ_CLI_NET##*/}"
 HQ_CLI_NETMASK="$(cidr_to_netmask "$HQ_CLI_NET_CIDR")"
+BR_SRV_NET_ADDR="${BR_SRV_NET%%/*}"
+
+reverse_zone_24_from_ip() {
+    local ip="$1"
+    IFS=. read -r o1 o2 o3 o4 <<<"$ip"
+    echo "${o3}.${o2}.${o1}.in-addr.arpa"
+}
+
+HQ_SRV_REV_ZONE="$(reverse_zone_24_from_ip "$HQ_SRV_NET_ADDR")"
+HQ_CLI_REV_ZONE="$(reverse_zone_24_from_ip "$HQ_CLI_NET_ADDR")"
+BR_SRV_REV_ZONE="$(reverse_zone_24_from_ip "$BR_SRV_NET_ADDR")"
+HQ_WAN_REV_ZONE="$(reverse_zone_24_from_ip "$HQ_RTR_WAN_IP")"
+BR_WAN_REV_ZONE="$(reverse_zone_24_from_ip "$BR_RTR_WAN_IP")"
 
 # --- DNS по заданию (везде одинаковый) ---
 cat <<EOF > /etc/resolv.conf
@@ -202,11 +215,11 @@ EOF
         # Local Zones Definition
         cat <<EOF > /etc/bind/named.conf.local
 zone "au-team.irpo" { type master; file "/etc/bind/zones/db.au-team.irpo"; };
-zone "10.168.192.in-addr.arpa" { type master; file "/etc/bind/zones/db.10.168.192"; };
-zone "20.168.192.in-addr.arpa" { type master; file "/etc/bind/zones/db.20.168.192"; };
-zone "1.16.172.in-addr.arpa" { type master; file "/etc/bind/zones/db.1.16.172"; };
-zone "2.16.172.in-addr.arpa" { type master; file "/etc/bind/zones/db.2.16.172"; };
-zone "100.168.192.in-addr.arpa" { type master; file "/etc/bind/zones/db.100.168.192"; };
+zone "$HQ_SRV_REV_ZONE" { type master; file "/etc/bind/zones/db.$HQ_SRV_REV_ZONE"; };
+zone "$HQ_CLI_REV_ZONE" { type master; file "/etc/bind/zones/db.$HQ_CLI_REV_ZONE"; };
+zone "$HQ_WAN_REV_ZONE" { type master; file "/etc/bind/zones/db.$HQ_WAN_REV_ZONE"; };
+zone "$BR_WAN_REV_ZONE" { type master; file "/etc/bind/zones/db.$BR_WAN_REV_ZONE"; };
+zone "$BR_SRV_REV_ZONE" { type master; file "/etc/bind/zones/db.$BR_SRV_REV_ZONE"; };
 EOF
         mkdir -p /etc/bind/zones
 
@@ -225,7 +238,7 @@ web    IN A $ISP_BR_IP
 EOF
 
         # 2. Обратная зона HQ (192.168.10.x)
-        cat <<EOF > /etc/bind/zones/db.10.168.192
+        cat <<EOF > /etc/bind/zones/db.$HQ_SRV_REV_ZONE
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
@@ -233,7 +246,7 @@ $(last_octet "$HQ_SRV_IP") IN PTR hq-srv.au-team.irpo.
 EOF
 
         # 3. Обратная зона CLI (192.168.20.x)
-        cat <<EOF > /etc/bind/zones/db.20.168.192
+        cat <<EOF > /etc/bind/zones/db.$HQ_CLI_REV_ZONE
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
@@ -241,7 +254,7 @@ $(last_octet "$HQ_CLI_IP") IN PTR hq-cli.au-team.irpo.
 EOF
 
         # 4. Обратная зона WAN HQ (172.16.1.x)
-        cat <<EOF > /etc/bind/zones/db.1.16.172
+        cat <<EOF > /etc/bind/zones/db.$HQ_WAN_REV_ZONE
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
@@ -250,7 +263,7 @@ $(last_octet "$HQ_RTR_WAN_IP") IN PTR hq-rtr.au-team.irpo.
 EOF
 
         # 5. Обратная зона WAN BR (172.16.2.x)
-        cat <<EOF > /etc/bind/zones/db.2.16.172
+        cat <<EOF > /etc/bind/zones/db.$BR_WAN_REV_ZONE
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
@@ -259,7 +272,7 @@ $(last_octet "$BR_RTR_WAN_IP") IN PTR br-rtr.au-team.irpo.
 EOF
 
         # 6. Обратная зона BR (192.168.100.x)
-        cat <<EOF > /etc/bind/zones/db.100.168.192
+        cat <<EOF > /etc/bind/zones/db.$BR_SRV_REV_ZONE
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
@@ -373,7 +386,8 @@ interface gre30
  ip ospf message-digest-key 1 md5 1c+rYtGm
 !
 router ospf
- network $BR_SRV_NET area 0
+ network $HQ_SRV_NET area 0
+ network $HQ_CLI_NET area 0
  network $GRE_NET area 0
 !
 line vty
@@ -483,6 +497,9 @@ EOF
         ;;
 
     "hq-cli")
+        # VLAN-интерфейс для HQ-CLI (ens33.200)
+        echo "8021q" >> /etc/modules
+        modprobe 8021q
         cat <<EOF > /etc/network/interfaces
 auto $REAL_IFACE
 iface $REAL_IFACE inet manual
