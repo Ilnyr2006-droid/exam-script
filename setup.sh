@@ -272,6 +272,8 @@ zone "100.168.192.in-addr.arpa" {
     file "/etc/bind/zones/db.100.168.192.in-addr.arpa";
 };
 EOF
+        # На HQ-SRV не используем samba-dlz (это только для BR-SRV)
+        sed -i '/samba-dlz/d' /etc/bind/named.conf.local
         mkdir -p /etc/bind/zones
 
         # 1. Прямая зона
@@ -329,7 +331,11 @@ EOF
 @ IN NS hq-srv.au-team.irpo.
 $(last_octet "$BR_SRV_IP") IN PTR br-srv.au-team.irpo.
 EOF
-        systemctl restart bind9
+        # Проверка и запуск DNS
+        named-checkconf -z >/dev/null 2>&1 || true
+        systemctl restart named >/dev/null 2>&1 || systemctl restart bind9
+        # Быстрая проверка, что DNS отвечает локально
+        nslookup hq-srv.${DOMAIN} 127.0.0.1 >/dev/null 2>&1 || true
         ;;
 
     "br-srv")
