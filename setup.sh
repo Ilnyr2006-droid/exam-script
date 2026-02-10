@@ -183,6 +183,9 @@ setup_users() {
 # --- SSH (Порт 2026) ---
 setup_ssh() {
     echo ">>> Настройка SSH..."
+    # Убираем возможный lock от packagekit
+    systemctl stop packagekit || true
+    systemctl stop packagekitd || true
     apt-get update
     install_pkg openssh-server
     echo "Authorized access only" > /etc/issue.net
@@ -201,7 +204,7 @@ setup_ssh() {
     elif [[ "$ROLE" == *"rtr"* ]]; then
         echo "AllowUsers net_admin" >> /etc/ssh/sshd_config
     fi
-    systemctl restart ssh
+    systemctl restart ssh || systemctl restart sshd
 }
 
 # --- ЛОГИКА ПО РОЛЯМ ---
