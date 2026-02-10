@@ -303,6 +303,24 @@ CONFIG
         sed -i 's/Port 22/Port 2026/' /etc/ssh/sshd_config
         systemctl restart ssh
 
+        echo ">>> HQ-CLI: Kerberos config..."
+        cat <<'CONFIG' > /etc/krb5.conf
+[libdefaults]
+    default_realm = AU-TEAM.IRPO
+    dns_lookup_kdc = true
+    dns_lookup_realm = false
+
+[realms]
+    AU-TEAM.IRPO = {
+        kdc = br-srv.au-team.irpo
+        admin_server = br-srv.au-team.irpo
+    }
+
+[domain_realm]
+    .au-team.irpo = AU-TEAM.IRPO
+    au-team.irpo = AU-TEAM.IRPO
+CONFIG
+
         echo ">>> HQ-CLI: Join Domain..."
         install_pkg realmd sssd sssd-tools libnss-sss libpam-sss adcli oddjob oddjob-mkhomedir packagekit samba-common-bin krb5-user nfs-common
         echo $PASS_ADM | realm join -v --user=Administrator AU-TEAM.IRPO
@@ -326,7 +344,8 @@ CONFIG
             HQ_RTR_WAN_IP="$(get_ip "$REAL_IFACE")"
             DEST="${HQ_SRV_IP:-192.168.10.2}"
         else
-            BR_SRV_IP="$(get_ip ens37)"
+            BR_SRV_IP="$(getent ahosts br-srv.${DOMAIN} 2>/dev/null | awk 'NR==1{print $1}')"
+            if [ -z "$BR_SRV_IP" ]; then BR_SRV_IP="192.168.100.2"; fi
             BR_RTR_WAN_IP="$(get_ip "$REAL_IFACE")"
             DEST="${BR_SRV_IP:-192.168.100.2}"
         fi
