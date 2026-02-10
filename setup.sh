@@ -401,9 +401,8 @@ EOF
         echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
         install_pkg iptables-persistent
         
-        # NAT для VLAN сетей
-        iptables -t nat -A POSTROUTING -o ens37.100 -j MASQUERADE
-        iptables -t nat -A POSTROUTING -o ens37.200 -j MASQUERADE
+        # NAT наружу через WAN-интерфейс
+        iptables -t nat -A POSTROUTING -o $REAL_IFACE -j MASQUERADE
         iptables-save > /etc/iptables/rules.v4
 
         install_pkg isc-dhcp-server
