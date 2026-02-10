@@ -114,11 +114,29 @@ reverse_zone_24_from_ip() {
     echo "${o3}.${o2}.${o1}.in-addr.arpa"
 }
 
+# Подстраховка, если сети пустые
+if [ -z "$HQ_SRV_NET_ADDR" ]; then HQ_SRV_NET_ADDR="${HQ_SRV_IP%.*}.0"; fi
+if [ -z "$HQ_CLI_NET_ADDR" ]; then HQ_CLI_NET_ADDR="${HQ_CLI_IP%.*}.0"; fi
+if [ -z "$BR_SRV_NET_ADDR" ]; then BR_SRV_NET_ADDR="${BR_SRV_IP%.*}.0"; fi
+
 HQ_SRV_REV_ZONE="$(reverse_zone_24_from_ip "$HQ_SRV_NET_ADDR")"
 HQ_CLI_REV_ZONE="$(reverse_zone_24_from_ip "$HQ_CLI_NET_ADDR")"
 BR_SRV_REV_ZONE="$(reverse_zone_24_from_ip "$BR_SRV_NET_ADDR")"
 HQ_WAN_REV_ZONE="$(reverse_zone_24_from_ip "$HQ_RTR_WAN_IP")"
 BR_WAN_REV_ZONE="$(reverse_zone_24_from_ip "$BR_RTR_WAN_IP")"
+
+validate_rev_zone() {
+    case "$1" in
+        ""|*..*|*"...in-addr.arpa"*) return 1 ;;
+    esac
+    return 0
+}
+for z in "$HQ_SRV_REV_ZONE" "$HQ_CLI_REV_ZONE" "$BR_SRV_REV_ZONE" "$HQ_WAN_REV_ZONE" "$BR_WAN_REV_ZONE"; do
+    if ! validate_rev_zone "$z"; then
+        echo "Ошибка: не удалось вычислить reverse-зону. Проверьте введенные IP/сети."
+        exit 1
+    fi
+done
 
 # --- DNS по заданию (везде одинаковый) ---
 cat <<EOF > /etc/resolv.conf
@@ -396,6 +414,7 @@ EOF
         ;;
 
     "br-rtr")
+        echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4
         setup_users
         setup_ssh
         echo "ip_gre" >> /etc/modules
