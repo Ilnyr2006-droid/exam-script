@@ -49,7 +49,7 @@ prompt_var HQ_RTR_VLAN100_IP_CIDR "192.168.10.1/27" "HQ-RTR VLAN100 IP/CIDR"
 prompt_var HQ_RTR_VLAN200_IP_CIDR "192.168.20.1/28" "HQ-RTR VLAN200 IP/CIDR"
 prompt_var HQ_RTR_VLAN999_IP_CIDR "192.168.250.1/29" "HQ-RTR VLAN999 IP/CIDR"
 prompt_var BR_RTR_LAN_IP_CIDR "192.168.100.1/27" "BR-RTR LAN IP/CIDR"
-prompt_var HQ_CLI_IP_CIDR "192.168.20.10/28" "HQ-CLI IP/CIDR"
+prompt_var HQ_CLI_IP_CIDR "192.168.20.2/28" "HQ-CLI IP/CIDR"
 prompt_var ISP_HQ_IP_CIDR "172.16.1.1/28" "ISP IP toward HQ (ens37) IP/CIDR"
 prompt_var ISP_BR_IP_CIDR "172.16.2.1/28" "ISP IP toward BR (ens38) IP/CIDR"
 
@@ -187,6 +187,10 @@ setup_ssh() {
     sed -i 's/Port 22/Port 2026/' /etc/ssh/sshd_config
     sed -i 's/#Banner none/Banner \/etc\/issue.net/' /etc/ssh/sshd_config
     sed -i 's/#MaxAuthTries 6/MaxAuthTries 2/' /etc/ssh/sshd_config
+    # Разрешаем парольную аутентификацию
+    sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    sed -i 's/^KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config
     
     if [[ "$ROLE" == *"srv"* ]]; then
         echo "AllowUsers sshuser" >> /etc/ssh/sshd_config
@@ -232,12 +236,41 @@ options {
 EOF
         # Local Zones Definition
         cat <<EOF > /etc/bind/named.conf.local
-zone "au-team.irpo" { type master; file "/etc/bind/zones/db.au-team.irpo"; };
-zone "$HQ_SRV_REV_ZONE" { type master; file "/etc/bind/zones/db.$HQ_SRV_REV_ZONE"; };
-zone "$HQ_CLI_REV_ZONE" { type master; file "/etc/bind/zones/db.$HQ_CLI_REV_ZONE"; };
-zone "$HQ_WAN_REV_ZONE" { type master; file "/etc/bind/zones/db.$HQ_WAN_REV_ZONE"; };
-zone "$BR_WAN_REV_ZONE" { type master; file "/etc/bind/zones/db.$BR_WAN_REV_ZONE"; };
-zone "$BR_SRV_REV_ZONE" { type master; file "/etc/bind/zones/db.$BR_SRV_REV_ZONE"; };
+// Прямая зона
+zone "au-team.irpo" {
+    type master;
+    file "/etc/bind/zones/db.au-team.irpo";
+};
+
+// Обратная зона для серверов (192.168.10.x)
+zone "10.168.192.in-addr.arpa" {
+    type master;
+    file "/etc/bind/zones/db.10.168.192.in-addr.arpa";
+};
+
+// Обратная зона для клиентов (192.168.20.x)
+zone "20.168.192.in-addr.arpa" {
+    type master;
+    file "/etc/bind/zones/db.20.168.192.in-addr.arpa";
+};
+
+// Обратная зона для WAN HQ (172.16.1.x)
+zone "1.16.172.in-addr.arpa" {
+    type master;
+    file "/etc/bind/zones/db.1.16.172.in-addr.arpa";
+};
+
+// Обратная зона для WAN BR (172.16.2.x)
+zone "2.16.172.in-addr.arpa" {
+    type master;
+    file "/etc/bind/zones/db.2.16.172.in-addr.arpa";
+};
+
+// Обратная зона для филиала (192.168.100.x)
+zone "100.168.192.in-addr.arpa" {
+    type master;
+    file "/etc/bind/zones/db.100.168.192.in-addr.arpa";
+};
 EOF
         mkdir -p /etc/bind/zones
 
@@ -256,7 +289,7 @@ web    IN A $ISP_BR_IP
 EOF
 
         # 2. Обратная зона HQ (192.168.10.x)
-        cat <<EOF > /etc/bind/zones/db.$HQ_SRV_REV_ZONE
+        cat <<EOF > /etc/bind/zones/db.10.168.192.in-addr.arpa
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
@@ -264,7 +297,7 @@ $(last_octet "$HQ_SRV_IP") IN PTR hq-srv.au-team.irpo.
 EOF
 
         # 3. Обратная зона CLI (192.168.20.x)
-        cat <<EOF > /etc/bind/zones/db.$HQ_CLI_REV_ZONE
+        cat <<EOF > /etc/bind/zones/db.20.168.192.in-addr.arpa
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
@@ -272,7 +305,7 @@ $(last_octet "$HQ_CLI_IP") IN PTR hq-cli.au-team.irpo.
 EOF
 
         # 4. Обратная зона WAN HQ (172.16.1.x)
-        cat <<EOF > /etc/bind/zones/db.$HQ_WAN_REV_ZONE
+        cat <<EOF > /etc/bind/zones/db.1.16.172.in-addr.arpa
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
@@ -281,7 +314,7 @@ $(last_octet "$HQ_RTR_WAN_IP") IN PTR hq-rtr.au-team.irpo.
 EOF
 
         # 5. Обратная зона WAN BR (172.16.2.x)
-        cat <<EOF > /etc/bind/zones/db.$BR_WAN_REV_ZONE
+        cat <<EOF > /etc/bind/zones/db.2.16.172.in-addr.arpa
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
@@ -290,7 +323,7 @@ $(last_octet "$BR_RTR_WAN_IP") IN PTR br-rtr.au-team.irpo.
 EOF
 
         # 6. Обратная зона BR (192.168.100.x)
-        cat <<EOF > /etc/bind/zones/db.$BR_SRV_REV_ZONE
+        cat <<EOF > /etc/bind/zones/db.100.168.192.in-addr.arpa
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
