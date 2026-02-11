@@ -238,9 +238,13 @@ _kpasswd._tcp.au-team.irpo      IN      SRV     0 100 464       br-srv.au-team.i
 _kpasswd._udp.au-team.irpo      IN      SRV     0 100 464       br-srv.au-team.irpo.
 _ldap._tcp.dc._msdcs.au-team.irpo       IN      SRV     0 100 389       br-srv.au-team.irpo.
 CONFIG
-        echo 'dlz "samba-dlz" { database "dlopen /usr/lib/x86_64-linux-gnu/samba/bind9/dlz_bind9_11.so"; };' >> /etc/bind/named.conf.local
-        sed -i "/};/i allow-update { ${BR_SRV_IP:-192.168.100.2}; };" /etc/bind/named.conf.options
-        systemctl restart bind9
+        # На HQ-SRV не используем samba-dlz и не пишем allow-update в options
+        sed -i '/samba-dlz/d' /etc/bind/named.conf.local
+        sed -i '/allow-update/d' /etc/bind/named.conf.options
+        grep -n "samba-dlz" /etc/bind/named.conf.local || true
+        grep -n "allow-update" /etc/bind/named.conf.options || true
+        systemctl restart named || systemctl restart bind9
+        ss -lntup | grep :53 || true
 
         echo ">>> HQ-SRV: RAID..."
         install_pkg mdadm
