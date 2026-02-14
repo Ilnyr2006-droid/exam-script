@@ -40,12 +40,6 @@ prompt_var() {
     fi
 }
 
-# --- Ввод интерфейсов (если имена отличаются) ---
-prompt_var HQ_RTR_LAN_IFACE "ens37" "HQ-RTR LAN интерфейс (для VLAN 100/200/999)"
-prompt_var BR_RTR_LAN_IFACE "ens37" "BR-RTR LAN интерфейс (в сторону BR-SRV)"
-prompt_var ISP_HQ_IFACE "ens37" "ISP интерфейс в сторону HQ-RTR"
-prompt_var ISP_BR_IFACE "ens38" "ISP интерфейс в сторону BR-RTR"
-
 # IP адреса (с CIDR там, где нужно)
 prompt_var HQ_SRV_IP_CIDR "192.168.10.2/27" "HQ-SRV IP/CIDR"
 prompt_var BR_SRV_IP_CIDR "192.168.100.2/27" "BR-SRV IP/CIDR"
@@ -380,26 +374,26 @@ iface $REAL_IFACE inet static
     address $HQ_RTR_WAN_IP_CIDR
     gateway $HQ_RTR_WAN_GW
 
-auto $HQ_RTR_LAN_IFACE
-iface $HQ_RTR_LAN_IFACE inet manual
+auto ens37
+iface ens37 inet manual
 
 # VLAN 100 для Сервера
-auto ${HQ_RTR_LAN_IFACE}.100
-iface ${HQ_RTR_LAN_IFACE}.100 inet static
+auto ens37.100
+iface ens37.100 inet static
     address $HQ_RTR_VLAN100_IP_CIDR
-    vlan_raw_device $HQ_RTR_LAN_IFACE
+    vlan_raw_device ens37
 
 # VLAN 200 для Клиентов
-auto ${HQ_RTR_LAN_IFACE}.200
-iface ${HQ_RTR_LAN_IFACE}.200 inet static
+auto ens37.200
+iface ens37.200 inet static
     address $HQ_RTR_VLAN200_IP_CIDR
-    vlan_raw_device $HQ_RTR_LAN_IFACE
+    vlan_raw_device ens37
 
 # VLAN 999 (Management)
-auto ${HQ_RTR_LAN_IFACE}.999
-iface ${HQ_RTR_LAN_IFACE}.999 inet static
+auto ens37.999
+iface ens37.999 inet static
     address $HQ_RTR_VLAN999_IP_CIDR
-    vlan_raw_device $HQ_RTR_LAN_IFACE
+    vlan_raw_device ens37
 
 auto gre30
 iface gre30 inet tunnel
@@ -425,7 +419,7 @@ EOF
         iptables-save > /etc/iptables/rules.v4
 
         install_pkg isc-dhcp-server
-        sed -i "s/INTERFACESv4=\"\"/INTERFACESv4=\"${HQ_RTR_LAN_IFACE}.200\"/" /etc/default/isc-dhcp-server
+        sed -i 's/INTERFACESv4=""/INTERFACESv4="ens37.200"/' /etc/default/isc-dhcp-server
         cat <<EOF > /etc/dhcp/dhcpd.conf
 default-lease-time 600;
 max-lease-time 7200;
@@ -478,8 +472,8 @@ auto $REAL_IFACE
 iface $REAL_IFACE inet static
     address $BR_RTR_WAN_IP_CIDR
     gateway $BR_RTR_WAN_GW
-auto $BR_RTR_LAN_IFACE
-iface $BR_RTR_LAN_IFACE inet static
+auto ens37
+iface ens37 inet static
     address $BR_RTR_LAN_IP_CIDR
 auto gre30
 iface gre30 inet tunnel
@@ -536,14 +530,14 @@ iface lo inet loopback
 auto $REAL_IFACE
 iface $REAL_IFACE inet dhcp
 
-auto $ISP_HQ_IFACE
-iface $ISP_HQ_IFACE inet static
+auto ens37
+iface ens37 inet static
     address $ISP_HQ_IP_CIDR
     # Маршрут к офису HQ
     up ip route add $HQ_SRV_NET via $HQ_RTR_WAN_IP
 
-auto $ISP_BR_IFACE
-iface $ISP_BR_IFACE inet static
+auto ens38
+iface ens38 inet static
     address $ISP_BR_IP_CIDR
     # Маршрут к офису Branch
     up ip route add $BR_SRV_NET via $BR_RTR_WAN_IP
