@@ -84,12 +84,12 @@ host_key_checking = False
 CONF
     cat <<CONF > /etc/ansible/hosts
 [hq]
-HQ-SRV ansible_host=${HQ_SRV_IP} ansible_user=sshuser ansible_port=2026 ansible_ssh_pass=${PASS_ADM}
-HQ-CLI ansible_host=${HQ_CLI_IP} ansible_user=sshuser ansible_port=2026 ansible_ssh_pass=${PASS_ADM}
-HQ-RTR ansible_host=${HQ_RTR_IP} ansible_user=net_admin ansible_port=2026 ansible_ssh_pass=${PASS_ADM}
+HQ-SRV ansible_host=${HQ_SRV_IP} ansible_user=root ansible_port=2026 ansible_ssh_pass=${ROOT_PASS}
+HQ-CLI ansible_host=${HQ_CLI_IP} ansible_user=root ansible_port=2026 ansible_ssh_pass=${ROOT_PASS}
+HQ-RTR ansible_host=${HQ_RTR_IP} ansible_user=root ansible_port=2026 ansible_ssh_pass=${ROOT_PASS}
 [br]
 BR-SRV ansible_connection=local ansible_user=root
-BR-RTR ansible_host=${BR_RTR_IP} ansible_user=net_admin ansible_port=2026 ansible_ssh_pass=${PASS_ADM}
+BR-RTR ansible_host=${BR_RTR_IP} ansible_user=root ansible_port=2026 ansible_ssh_pass=${ROOT_PASS}
 [all:vars]
 ansible_become=yes
 ansible_python_interpreter=/usr/bin/python3
@@ -229,16 +229,28 @@ CONF
     au-team.irpo = AU-TEAM.IRPO
 CONF
 
+    # Domain join (non-interactive)
     install_pkg realmd sssd sssd-tools libnss-sss libpam-sss adcli oddjob oddjob-mkhomedir packagekit samba-common-bin krb5-user nfs-common
-    echo $PASS_ADM | realm join -v --user=Administrator AU-TEAM.IRPO
-    echo "%domain\ admins ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+    echo $PASS_ADM | realm join -v --user=Administrator AU-TEAM.IRPO || true
+    kinit Administrator || true
+    klist || true
+    # Добавляем правило sudo по GID доменной группы (если доступно)
+    gid=$(id -g hquser1@au-team.irpo 2>/dev/null || true)
+    if [ -n "$gid" ]; then
+      echo "%#${gid} ALL=(ALL) NOPASSWD: /bin/cat, /bin/grep, /usr/bin/id" >> /etc/sudoers
+    fi
 
     # NFS client
     install_pkg nfs-common
     showmount -e ${HQ_SRV_IP} || true
     mkdir -p /mnt/nfs
     mount -t nfs ${HQ_SRV_IP}:/raid/nfs /mnt/nfs || true
+    df -h | grep nfs || true
     echo "${HQ_SRV_IP}:/raid/nfs   /mnt/nfs   nfs   defaults   0   0" >> /etc/fstab
+    umount /mnt/nfs || true
+    systemctl daemon-reload || true
+    mount -a || true
+    df -h | grep nfs || true
 
     mkdir -p /mnt/nfs
     echo "${HQ_SRV_IP}:/raid/nfs   /mnt/nfs   nfs   defaults   0   0" >> /etc/fstab
