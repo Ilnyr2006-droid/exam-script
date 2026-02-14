@@ -312,7 +312,7 @@ CONF
 systemctl restart chrony
 
 htpasswd -bc /etc/nginx/.htpasswd WEB P@ssw0rd
-cat <<CONF > /etc/nginx/sites-available/reverse_proxy.conf
+cat <<'CONF' > /etc/nginx/sites-available/reverse_proxy.conf
 upstream hq_srv_app { server 192.168.10.2:80; }
 upstream testapp_app { server 192.168.100.2:8080; }
 server {
