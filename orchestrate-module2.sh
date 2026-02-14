@@ -281,8 +281,8 @@ for pair in \
   "$HQ_RTR_IP hq-rtr" \
   "$BR_RTR_IP br-rtr" \
   "$HQ_SRV_IP hq-srv" \
-  "$HQ_CLI_IP hq-cli" \
-  "$BR_SRV_IP br-srv"
+  "$BR_SRV_IP br-srv" \
+  "$HQ_CLI_IP hq-cli"
 do
   host="${pair%% *}"
   role="${pair##* }"
@@ -301,7 +301,7 @@ ROLE="isp" bash -s <<'LOCAL'
 set -e
 install_pkg() { DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"; }
 
-install_pkg chrony nginx apache2-utils
+install_pkg chrony nginx apache2-utils sshpass
 cat <<CONF > /etc/chrony/chrony.conf
 server 0.debian.pool.ntp.org iburst
 local stratum 5
@@ -349,10 +349,7 @@ ssh_run "$BR_RTR_IP" "br-rtr"
 echo ">>> STEP 3: HQ-SRV (RAID + Web + NFS) — ISO required"
 ssh_run "$HQ_SRV_IP" "hq-srv"
 
-echo ">>> STEP 4: HQ-CLI (Domain join + NFS)"
-ssh_run "$HQ_CLI_IP" "hq-cli"
-
-echo ">>> STEP 5: BR-SRV (Samba AD + Ansible + Docker) — ISO required"
+echo ">>> STEP 4: BR-SRV (Samba AD + Ansible + Docker) — ISO required"
 # временно ставим 8.8.8.8, если нужно скачать пакеты
 sshpass -p "$ROOT_PASS" ssh -p "$SSH_PORT" \
   -o StrictHostKeyChecking=no \
@@ -362,4 +359,7 @@ sshpass -p "$ROOT_PASS" ssh -p "$SSH_PORT" \
   -o PubkeyAuthentication=no \
   root@"$BR_SRV_IP" "echo 'nameserver 8.8.8.8' > /etc/resolv.conf" || true
 ssh_run "$BR_SRV_IP" "br-srv"
+
+echo ">>> STEP 5: HQ-CLI (Domain join + NFS)"
+ssh_run "$HQ_CLI_IP" "hq-cli"
 echo "=== Done ==="
