@@ -403,26 +403,26 @@ iface $REAL_IFACE inet static
     address $HQ_RTR_WAN_IP_CIDR
     gateway $HQ_RTR_WAN_GW
 
-auto ens37
-iface ens37 inet manual
+auto ens36
+iface ens36 inet manual
 
 # VLAN 100 для Сервера
-auto ens37.100
-iface ens37.100 inet static
+auto ens36.100
+iface ens36.100 inet static
     address $HQ_RTR_VLAN100_IP_CIDR
-    vlan_raw_device ens37
+    vlan_raw_device ens36
 
 # VLAN 200 для Клиентов
-auto ens37.200
-iface ens37.200 inet static
+auto ens36.200
+iface ens36.200 inet static
     address $HQ_RTR_VLAN200_IP_CIDR
-    vlan_raw_device ens37
+    vlan_raw_device ens36
 
 # VLAN 999 (Management)
-auto ens37.999
-iface ens37.999 inet static
+auto ens36.999
+iface ens36.999 inet static
     address $HQ_RTR_VLAN999_IP_CIDR
-    vlan_raw_device ens37
+    vlan_raw_device ens36
 
 auto gre30
 iface gre30 inet tunnel
@@ -448,7 +448,7 @@ EOF
         iptables-save > /etc/iptables/rules.v4
 
         install_pkg isc-dhcp-server
-        sed -i 's/INTERFACESv4=""/INTERFACESv4="ens37.200"/' /etc/default/isc-dhcp-server
+        sed -i 's/INTERFACESv4=""/INTERFACESv4="ens36.200"/' /etc/default/isc-dhcp-server
         cat <<EOF > /etc/dhcp/dhcpd.conf
 default-lease-time 600;
 max-lease-time 7200;
