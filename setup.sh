@@ -229,10 +229,14 @@ setup_ssh() {
     sed -i 's/^KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config
     
     if [[ "$ROLE" == *"srv"* ]]; then
-        echo "AllowUsers sshuser" >> /etc/ssh/sshd_config
+        echo "AllowUsers sshuser root" >> /etc/ssh/sshd_config
     elif [[ "$ROLE" == *"rtr"* ]]; then
-        echo "AllowUsers net_admin" >> /etc/ssh/sshd_config
+        echo "AllowUsers net_admin root" >> /etc/ssh/sshd_config
+    elif [[ "$ROLE" == "hq-cli" ]]; then
+        echo "AllowUsers root" >> /etc/ssh/sshd_config
     fi
+    # Разрешаем вход root по SSH
+    echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
     systemctl restart ssh || systemctl restart sshd
 }
 
@@ -590,6 +594,7 @@ EOF
         ;;
 
     "hq-cli")
+        setup_ssh
         # VLAN-интерфейс для HQ-CLI (ens33.200)
         echo "8021q" >> /etc/modules
         modprobe 8021q
