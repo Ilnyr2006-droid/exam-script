@@ -10,6 +10,36 @@ REAL_IFACE=$(ip -o link show | awk -F': ' '{print $2}' | grep -v lo | head -n 1)
 if [ -z "$REAL_IFACE" ]; then REAL_IFACE="ens33"; fi
 echo ">>> Обнаружен основной интерфейс: $REAL_IFACE"
 
+# --- Переименование интерфейсов (1-й = ens33, 2-й = ens36, 3-й = ens37) ---
+rename_ifaces() {
+    local ifs=()
+    while read -r name; do
+        [ "$name" = "lo" ] && continue
+        ifs+=("$name")
+    done < <(ip -o link show | awk -F': ' '{print $2}')
+
+    # Если интерфейсов меньше 3 — ничего не делаем
+    [ "${#ifs[@]}" -lt 3 ] && return 0
+
+    # Первый интерфейс оставляем как есть (ожидаем ens33)
+    local second="${ifs[1]}"
+    local third="${ifs[2]}"
+
+    if [ "$second" != "ens36" ]; then
+        ip link set dev "$second" down || true
+        ip link set dev "$second" name ens36 || true
+        ip link set dev ens36 up || true
+    fi
+
+    if [ "$third" != "ens37" ]; then
+        ip link set dev "$third" down || true
+        ip link set dev "$third" name ens37 || true
+        ip link set dev ens37 up || true
+    fi
+}
+
+rename_ifaces
+
 ROLE=$1
 DOMAIN="au-team.irpo"
 VALID_ROLES="hq-srv br-srv hq-rtr br-rtr isp hq-cli"
