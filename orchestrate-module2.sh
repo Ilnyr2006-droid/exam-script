@@ -276,11 +276,11 @@ check_ssh() {
 }
 
 for pair in \
-  "$BR_SRV_IP br-srv" \
-  "$HQ_SRV_IP hq-srv" \
   "$HQ_RTR_IP hq-rtr" \
   "$BR_RTR_IP br-rtr" \
-  "$HQ_CLI_IP hq-cli"
+  "$HQ_SRV_IP hq-srv" \
+  "$HQ_CLI_IP hq-cli" \
+  "$BR_SRV_IP br-srv"
 do
   host="${pair%% *}"
   role="${pair##* }"
@@ -293,9 +293,71 @@ do
   fi
 done
 
-ssh_run "$BR_SRV_IP" "br-srv"
-ssh_run "$HQ_SRV_IP" "hq-srv"
+echo ">>> STEP 1: ISP (NTP + Proxy)"
+# запуск локально на ISP
+ROLE="isp" bash -s <<'LOCAL'
+set -e
+install_pkg() { DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"; }
+
+install_pkg chrony nginx apache2-utils
+cat <<CONF > /etc/chrony/chrony.conf
+server 0.debian.pool.ntp.org iburst
+local stratum 5
+allow 172.16.0.0/12
+allow 192.168.0.0/16
+log measurements statistics tracking
+CONF
+systemctl restart chrony
+
+htpasswd -bc /etc/nginx/.htpasswd WEB P@ssw0rd
+cat <<CONF > /etc/nginx/sites-available/reverse_proxy.conf
+upstream hq_srv_app { server 192.168.10.2:80; }
+upstream testapp_app { server 192.168.100.2:8080; }
+server {
+    listen 80;
+    server_name web.au-team.irpo;
+    auth_basic "Restricted Access";
+    auth_basic_user_file /etc/nginx/.htpasswd;
+    location / {
+        proxy_pass http://hq_srv_app;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+server {
+    listen 80;
+    server_name docker.au-team.irpo;
+    location / {
+        proxy_pass http://testapp_app;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+CONF
+ln -sf /etc/nginx/sites-available/reverse_proxy.conf /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+systemctl reload nginx
+LOCAL
+
+echo ">>> STEP 2: HQ-RTR & BR-RTR (NAT + Chrony)"
 ssh_run "$HQ_RTR_IP" "hq-rtr"
 ssh_run "$BR_RTR_IP" "br-rtr"
+
+echo ">>> STEP 3: HQ-SRV (RAID + Web + NFS) — ISO required"
+ssh_run "$HQ_SRV_IP" "hq-srv"
+
+echo ">>> STEP 4: HQ-CLI (Domain join + NFS)"
 ssh_run "$HQ_CLI_IP" "hq-cli"
+
+echo ">>> STEP 5: BR-SRV (Samba AD + Ansible + Docker) — ISO required"
+# временно ставим 8.8.8.8, если нужно скачать пакеты
+sshpass -p "$ROOT_PASS" ssh -p "$SSH_PORT" \
+  -o StrictHostKeyChecking=no \
+  -o UserKnownHostsFile=/dev/null \
+  -o IdentitiesOnly=yes \
+  -o PreferredAuthentications=password \
+  -o PubkeyAuthentication=no \
+  root@"$BR_SRV_IP" "echo 'nameserver 8.8.8.8' > /etc/resolv.conf" || true
+ssh_run "$BR_SRV_IP" "br-srv"
 echo "=== Done ==="
