@@ -24,6 +24,8 @@ ssh_run() {
   sshpass -p "$ROOT_PASS" ssh -p "$SSH_PORT" \
     -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
     -o IdentitiesOnly=yes \
     -o PreferredAuthentications=password \
     -o PubkeyAuthentication=no \
