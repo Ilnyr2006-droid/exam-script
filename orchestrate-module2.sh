@@ -17,6 +17,10 @@ HQ_RTR_IP="172.16.1.2"
 BR_RTR_IP="172.16.2.2"
 HQ_CLI_IP="192.168.20.2"
 
+echo ">>> Pre-flight: sshpass + route to HQ-CLI"
+apt-get install -y sshpass
+/sbin/ip route add 192.168.20.0/28 via 172.16.1.2 || true
+
 ssh_run() {
   local host="$1"
   local role="$2"
@@ -144,6 +148,7 @@ CONF
         docker restart testapp >/dev/null 2>&1 || true
       fi
     fi
+    perl -0777 -pi -e 's/ansible_ssh_pass=\\S*/ansible_ssh_pass=root/g' /etc/ansible/hosts
     ;;
 
   "hq-srv")
