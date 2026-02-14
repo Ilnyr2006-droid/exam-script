@@ -18,10 +18,8 @@ rename_ifaces() {
         ifs+=("$name")
     done < <(ip -o link show | awk -F': ' '{print $2}')
 
-    # Если интерфейсов меньше 3 — ничего не делаем
     [ "${#ifs[@]}" -lt 3 ] && return 0
 
-    # Первый интерфейс оставляем как есть (ожидаем ens33)
     local second="${ifs[1]}"
     local third="${ifs[2]}"
 
@@ -39,6 +37,7 @@ rename_ifaces() {
 }
 
 rename_ifaces
+
 
 ROLE=$1
 DOMAIN="au-team.irpo"
@@ -560,14 +559,14 @@ iface lo inet loopback
 auto $REAL_IFACE
 iface $REAL_IFACE inet dhcp
 
-auto ens37
-iface ens37 inet static
+auto ens36
+iface ens36 inet static
     address $ISP_HQ_IP_CIDR
     # Маршрут к офису HQ
     up ip route add $HQ_SRV_NET via $HQ_RTR_WAN_IP
 
-auto ens38
-iface ens38 inet static
+auto ens37
+iface ens37 inet static
     address $ISP_BR_IP_CIDR
     # Маршрут к офису Branch
     up ip route add $BR_SRV_NET via $BR_RTR_WAN_IP
