@@ -229,15 +229,22 @@ CONF
     au-team.irpo = AU-TEAM.IRPO
 CONF
 
-    # Domain join (non-interactive)
-    install_pkg realmd sssd sssd-tools libnss-sss libpam-sss adcli oddjob oddjob-mkhomedir packagekit samba-common-bin krb5-user nfs-common
-    echo $PASS_ADM | realm join -v --user=Administrator AU-TEAM.IRPO || true
+    # Domain join prerequisites (avoid interactive prompts)
+    echo "krb5-config krb5-config/default_realm string AU-TEAM.IRPO" | debconf-set-selections
+    echo "krb5-config krb5-config/kerberos_servers string br-srv.au-team.irpo" | debconf-set-selections
+    echo "krb5-config krb5-config/admin_server string br-srv.au-team.irpo" | debconf-set-selections
+    install_pkg realmd sssd oddjob oddjob-mkhomedir adcli samba-common packagekit sssd-tools krb5-user
+    install_pkg realmd sssd sssd-tools libnss-sss libpam-sss adcli oddjob oddjob-mkhomedir packagekit samba-common-bin krb5-user
+
+    echo "$PASS_ADM" | realm join -v --user=Administrator AU-TEAM.IRPO || true
     kinit Administrator || true
     klist || true
-    # Добавляем правило sudo по GID доменной группы (если доступно)
-    gid=$(id -g hquser1@au-team.irpo 2>/dev/null || true)
+
+    # Добавляем sudo по GID доменной группы (если доступно)
+    gid=$(getent group "hquser1@au-team.irpo" | cut -d: -f3 || true)
     if [ -n "$gid" ]; then
-      echo "%#${gid} ALL=(ALL) NOPASSWD: /bin/cat, /bin/grep, /usr/bin/id" >> /etc/sudoers
+      grep -q "%#${gid} ALL=(ALL) NOPASSWD: /bin/cat, /bin/grep, /usr/bin/id" /etc/sudoers || \
+        echo "%#${gid} ALL=(ALL) NOPASSWD: /bin/cat, /bin/grep, /usr/bin/id" >> /etc/sudoers
     fi
 
     # NFS client
@@ -246,15 +253,12 @@ CONF
     mkdir -p /mnt/nfs
     mount -t nfs ${HQ_SRV_IP}:/raid/nfs /mnt/nfs || true
     df -h | grep nfs || true
-    echo "${HQ_SRV_IP}:/raid/nfs   /mnt/nfs   nfs   defaults   0   0" >> /etc/fstab
+    grep -q "${HQ_SRV_IP}:/raid/nfs" /etc/fstab || \
+      echo "${HQ_SRV_IP}:/raid/nfs   /mnt/nfs   nfs   defaults   0   0" >> /etc/fstab
     umount /mnt/nfs || true
     systemctl daemon-reload || true
     mount -a || true
     df -h | grep nfs || true
-
-    mkdir -p /mnt/nfs
-    echo "${HQ_SRV_IP}:/raid/nfs   /mnt/nfs   nfs   defaults   0   0" >> /etc/fstab
-    mount -a
 
     useradd -m -s /bin/bash sshuser || true
     echo "sshuser:$PASS_ADM" | chpasswd
