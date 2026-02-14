@@ -233,6 +233,13 @@ CONF
     echo $PASS_ADM | realm join -v --user=Administrator AU-TEAM.IRPO
     echo "%domain\ admins ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
+    # NFS client
+    install_pkg nfs-common
+    showmount -e ${HQ_SRV_IP} || true
+    mkdir -p /mnt/nfs
+    mount -t nfs ${HQ_SRV_IP}:/raid/nfs /mnt/nfs || true
+    echo "${HQ_SRV_IP}:/raid/nfs   /mnt/nfs   nfs   defaults   0   0" >> /etc/fstab
+
     mkdir -p /mnt/nfs
     echo "${HQ_SRV_IP}:/raid/nfs   /mnt/nfs   nfs   defaults   0   0" >> /etc/fstab
     mount -a
@@ -251,6 +258,8 @@ CONF
     else
       DEST="$BR_SRV_IP"
     fi
+    # гарантируем пароль net_admin
+    echo "net_admin:$PASS_ADM" | chpasswd || true
     /usr/sbin/iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 8080 -j DNAT --to-destination ${DEST}:8080
     /usr/sbin/iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 80 -j DNAT --to-destination ${DEST}:80
     /usr/sbin/iptables -t nat -A PREROUTING -i ens33 -p tcp --dport 2026 -j DNAT --to-destination ${DEST}:2026
@@ -362,4 +371,13 @@ ssh_run "$BR_SRV_IP" "br-srv"
 
 echo ">>> STEP 5: HQ-CLI (Domain join + NFS)"
 ssh_run "$HQ_CLI_IP" "hq-cli"
+
+echo ">>> Ansible ping (from BR-SRV)"
+sshpass -p "$ROOT_PASS" ssh -p "$SSH_PORT" \
+  -o StrictHostKeyChecking=no \
+  -o UserKnownHostsFile=/dev/null \
+  -o IdentitiesOnly=yes \
+  -o PreferredAuthentications=password \
+  -o PubkeyAuthentication=no \
+  root@"$BR_SRV_IP" "ansible all -m ping" || true
 echo "=== Done ==="
