@@ -501,8 +501,8 @@ auto $REAL_IFACE
 iface $REAL_IFACE inet static
     address $BR_RTR_WAN_IP_CIDR
     gateway $BR_RTR_WAN_GW
-auto ens37
-iface ens37 inet static
+auto ens36
+iface ens36 inet static
     address $BR_RTR_LAN_IP_CIDR
 auto gre30
 iface gre30 inet tunnel
