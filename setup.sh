@@ -568,6 +568,7 @@ iface ens36 inet static
     address $ISP_HQ_IP_CIDR
     # Маршрут к офису HQ
     up ip route add $HQ_SRV_NET via $HQ_RTR_WAN_IP
+    up ip route add $HQ_CLI_NET via $HQ_RTR_WAN_IP
 
 auto ens37
 iface ens37 inet static
