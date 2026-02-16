@@ -169,13 +169,12 @@ done
 
 # --- DNS по заданию ---
 if [ "$ROLE" != "isp" ]; then
-    if ! grep -q "nameserver 8.8.8.8" /etc/resolv.conf 2>/dev/null; then
 cat <<EOF > /etc/resolv.conf
 search au.team.irpo
 domain au.team.irpo
+nameserver 192.168.10.2
 nameserver 8.8.8.8
 EOF
-    fi
 fi
 
 # --- Имя и Время ---
