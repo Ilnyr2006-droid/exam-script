@@ -10,35 +10,6 @@ REAL_IFACE=$(ip -o link show | awk -F': ' '{print $2}' | grep -v lo | head -n 1)
 if [ -z "$REAL_IFACE" ]; then REAL_IFACE="ens33"; fi
 echo ">>> Обнаружен основной интерфейс: $REAL_IFACE"
 
-# --- Переименование интерфейсов (1-й = ens33, 2-й = ens36, 3-й = ens37) ---
-rename_ifaces() {
-    local ifs=()
-    while read -r name; do
-        [ "$name" = "lo" ] && continue
-        ifs+=("$name")
-    done < <(ip -o link show | awk -F': ' '{print $2}')
-
-    [ "${#ifs[@]}" -lt 3 ] && return 0
-
-    local second="${ifs[1]}"
-    local third="${ifs[2]}"
-
-    if [ "$second" != "ens36" ]; then
-        ip link set dev "$second" down || true
-        ip link set dev "$second" name ens36 || true
-        ip link set dev ens36 up || true
-    fi
-
-    if [ "$third" != "ens37" ]; then
-        ip link set dev "$third" down || true
-        ip link set dev "$third" name ens37 || true
-        ip link set dev ens37 up || true
-    fi
-}
-
-rename_ifaces
-
-
 ROLE=$1
 DOMAIN="au-team.irpo"
 VALID_ROLES="hq-srv br-srv hq-rtr br-rtr isp hq-cli"
@@ -69,6 +40,29 @@ prompt_var() {
     fi
 }
 
+# --- Ввод интерфейсов для маршрутизаторов/ISP ---
+HQ_RTR_WAN_IFACE="$REAL_IFACE"
+HQ_RTR_TRUNK_IFACE="ens36"
+BR_RTR_WAN_IFACE="$REAL_IFACE"
+BR_RTR_LAN_IFACE="ens36"
+ISP_UPLINK_IFACE="$REAL_IFACE"
+ISP_HQ_IFACE="ens36"
+ISP_BR_IFACE="ens37"
+
+if [ "$ROLE" = "hq-rtr" ]; then
+    prompt_var HQ_RTR_WAN_IFACE "$REAL_IFACE" "HQ-RTR WAN interface"
+    prompt_var HQ_RTR_TRUNK_IFACE "ens36" "HQ-RTR trunk interface (VLAN 100/200/999)"
+fi
+if [ "$ROLE" = "br-rtr" ]; then
+    prompt_var BR_RTR_WAN_IFACE "$REAL_IFACE" "BR-RTR WAN interface"
+    prompt_var BR_RTR_LAN_IFACE "ens36" "BR-RTR LAN interface"
+fi
+if [ "$ROLE" = "isp" ]; then
+    prompt_var ISP_UPLINK_IFACE "$REAL_IFACE" "ISP uplink interface (DHCP/NAT)"
+    prompt_var ISP_HQ_IFACE "ens36" "ISP interface toward HQ"
+    prompt_var ISP_BR_IFACE "ens37" "ISP interface toward BR"
+fi
+
 # IP адреса (с CIDR там, где нужно)
 prompt_var HQ_SRV_IP_CIDR "192.168.10.2/27" "HQ-SRV IP/CIDR"
 prompt_var BR_SRV_IP_CIDR "192.168.100.2/27" "BR-SRV IP/CIDR"
@@ -79,8 +73,8 @@ prompt_var HQ_RTR_VLAN200_IP_CIDR "192.168.20.1/28" "HQ-RTR VLAN200 IP/CIDR"
 prompt_var HQ_RTR_VLAN999_IP_CIDR "192.168.250.1/29" "HQ-RTR VLAN999 IP/CIDR"
 prompt_var BR_RTR_LAN_IP_CIDR "192.168.100.1/27" "BR-RTR LAN IP/CIDR"
 prompt_var HQ_CLI_IP_CIDR "192.168.20.2/28" "HQ-CLI IP/CIDR"
-prompt_var ISP_HQ_IP_CIDR "172.16.1.1/28" "ISP IP toward HQ (ens37) IP/CIDR"
-prompt_var ISP_BR_IP_CIDR "172.16.2.1/28" "ISP IP toward BR (ens38) IP/CIDR"
+prompt_var ISP_HQ_IP_CIDR "172.16.1.1/28" "ISP IP toward HQ (${ISP_HQ_IFACE}) IP/CIDR"
+prompt_var ISP_BR_IP_CIDR "172.16.2.1/28" "ISP IP toward BR (${ISP_BR_IFACE}) IP/CIDR"
 
 # Сети (для маршрутов, DHCP, OSPF)
 prompt_var HQ_SRV_NET "192.168.10.0/27" "HQ-SRV network/CIDR"
@@ -396,36 +390,36 @@ EOF
         modprobe ip_gre
         
         # Настройка VLAN (Router-on-a-stick)
-        # ВНИМАНИЕ: Если нет свитча, убедитесь, что ens37 в виртуалке подключен к правильному сегменту
+        # ВНИМАНИЕ: Если нет свитча, убедитесь, что trunk-интерфейс подключен к правильному сегменту
         cat <<EOF > /etc/network/interfaces
 auto lo
 iface lo inet loopback
 
-auto $REAL_IFACE
-iface $REAL_IFACE inet static
+auto $HQ_RTR_WAN_IFACE
+iface $HQ_RTR_WAN_IFACE inet static
     address $HQ_RTR_WAN_IP_CIDR
     gateway $HQ_RTR_WAN_GW
 
-auto ens36
-iface ens36 inet manual
+auto $HQ_RTR_TRUNK_IFACE
+iface $HQ_RTR_TRUNK_IFACE inet manual
 
 # VLAN 100 для Сервера
-auto ens36.100
-iface ens36.100 inet static
+auto ${HQ_RTR_TRUNK_IFACE}.100
+iface ${HQ_RTR_TRUNK_IFACE}.100 inet static
     address $HQ_RTR_VLAN100_IP_CIDR
-    vlan_raw_device ens36
+    vlan_raw_device $HQ_RTR_TRUNK_IFACE
 
 # VLAN 200 для Клиентов
-auto ens36.200
-iface ens36.200 inet static
+auto ${HQ_RTR_TRUNK_IFACE}.200
+iface ${HQ_RTR_TRUNK_IFACE}.200 inet static
     address $HQ_RTR_VLAN200_IP_CIDR
-    vlan_raw_device ens36
+    vlan_raw_device $HQ_RTR_TRUNK_IFACE
 
 # VLAN 999 (Management)
-auto ens36.999
-iface ens36.999 inet static
+auto ${HQ_RTR_TRUNK_IFACE}.999
+iface ${HQ_RTR_TRUNK_IFACE}.999 inet static
     address $HQ_RTR_VLAN999_IP_CIDR
-    vlan_raw_device ens36
+    vlan_raw_device $HQ_RTR_TRUNK_IFACE
 
 auto gre30
 iface gre30 inet tunnel
@@ -447,11 +441,11 @@ EOF
         install_pkg iptables-persistent
         
         # NAT наружу через WAN-интерфейс
-        iptables -t nat -A POSTROUTING -o $REAL_IFACE -j MASQUERADE
+        iptables -t nat -A POSTROUTING -o $HQ_RTR_WAN_IFACE -j MASQUERADE
         iptables-save > /etc/iptables/rules.v4
 
         install_pkg isc-dhcp-server
-        sed -i 's/INTERFACESv4=""/INTERFACESv4="ens36.200"/' /etc/default/isc-dhcp-server
+        sed -i "s/INTERFACESv4=\"\"/INTERFACESv4=\"${HQ_RTR_TRUNK_IFACE}.200\"/" /etc/default/isc-dhcp-server
         cat <<EOF > /etc/dhcp/dhcpd.conf
 default-lease-time 600;
 max-lease-time 7200;
@@ -500,12 +494,12 @@ EOF
         cat <<EOF > /etc/network/interfaces
 auto lo
 iface lo inet loopback
-auto $REAL_IFACE
-iface $REAL_IFACE inet static
+auto $BR_RTR_WAN_IFACE
+iface $BR_RTR_WAN_IFACE inet static
     address $BR_RTR_WAN_IP_CIDR
     gateway $BR_RTR_WAN_GW
-auto ens36
-iface ens36 inet static
+auto $BR_RTR_LAN_IFACE
+iface $BR_RTR_LAN_IFACE inet static
     address $BR_RTR_LAN_IP_CIDR
 auto gre30
 iface gre30 inet tunnel
@@ -526,7 +520,7 @@ EOF
         
         echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
         install_pkg iptables-persistent
-        iptables -t nat -A POSTROUTING -o $REAL_IFACE -j MASQUERADE
+        iptables -t nat -A POSTROUTING -o $BR_RTR_WAN_IFACE -j MASQUERADE
         iptables-save > /etc/iptables/rules.v4
 
         install_pkg frr
@@ -559,18 +553,18 @@ EOF
 auto lo
 iface lo inet loopback
 
-auto $REAL_IFACE
-iface $REAL_IFACE inet dhcp
+auto $ISP_UPLINK_IFACE
+iface $ISP_UPLINK_IFACE inet dhcp
 
-auto ens36
-iface ens36 inet static
+auto $ISP_HQ_IFACE
+iface $ISP_HQ_IFACE inet static
     address $ISP_HQ_IP_CIDR
     # Маршрут к офису HQ
     up ip route add $HQ_SRV_NET via $HQ_RTR_WAN_IP
     up ip route add $HQ_CLI_NET via $HQ_RTR_WAN_IP
 
-auto ens37
-iface ens37 inet static
+auto $ISP_BR_IFACE
+iface $ISP_BR_IFACE inet static
     address $ISP_BR_IP_CIDR
     # Маршрут к офису Branch
     up ip route add $BR_SRV_NET via $BR_RTR_WAN_IP
@@ -582,7 +576,7 @@ EOF
         
         echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
         install_pkg iptables-persistent
-        iptables -t nat -A POSTROUTING -o $REAL_IFACE -j MASQUERADE
+        iptables -t nat -A POSTROUTING -o $ISP_UPLINK_IFACE -j MASQUERADE
         iptables-save > /etc/iptables/rules.v4
         
         install_pkg chrony
