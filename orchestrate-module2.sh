@@ -36,6 +36,13 @@ ssh_run() {
     root@"$host" "ROLE='$role' PASS_ADM='$PASS_ADM' ISO_FILE='$ISO_FILE' ISO_MOUNT='$ISO_MOUNT' DOMAIN='$DOMAIN' HQ_SRV_IP='$HQ_SRV_IP' BR_SRV_IP='$BR_SRV_IP' HQ_RTR_IP='$HQ_RTR_IP' BR_RTR_IP='$BR_RTR_IP' HQ_CLI_IP='$HQ_CLI_IP' bash -s" <<'REMOTE'
 set -e
 install_pkg() { DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"; }
+require_port_listen() {
+  local port="$1"
+  if ! ss -lnt | grep -q ":${port}\\b"; then
+    echo "ERROR: expected listening TCP port ${port}, but it is not open"
+    exit 1
+  fi
+}
 
 setup_chrony_client() {
   install_pkg chrony
@@ -102,12 +109,19 @@ CONF
     echo -e "\n\n\n" | ssh-keygen -t rsa -b 4096 -N "" -f /root/.ssh/id_rsa
 
     install_pkg docker.io docker-compose
+    if ! command -v docker >/dev/null 2>&1; then
+      echo "ERROR: docker is not installed on br-srv"
+      exit 1
+    fi
     mkdir -p $ISO_MOUNT
-    if [ -f "$ISO_FILE" ]; then
-      mount -o loop "$ISO_FILE" $ISO_MOUNT || true
-      if [ -d "$ISO_MOUNT/docker" ]; then
-        docker load -i $ISO_MOUNT/docker/mariadb_latest.tar
-        docker load -i $ISO_MOUNT/docker/site_latest.tar
+    if [ ! -f "$ISO_FILE" ]; then
+      echo "ERROR: ISO file not found on br-srv: $ISO_FILE"
+      exit 1
+    fi
+    mount -o loop "$ISO_FILE" $ISO_MOUNT || true
+    if [ -d "$ISO_MOUNT/docker" ]; then
+      docker load -i $ISO_MOUNT/docker/mariadb_latest.tar
+      docker load -i $ISO_MOUNT/docker/site_latest.tar
         mkdir -p /opt/testapp
         cat <<CONF > /opt/testapp/docker-compose.yml
 version: '3.8'
@@ -141,13 +155,16 @@ services:
 volumes:
   db_data:
 CONF
-        cd /opt/testapp && docker-compose up -d
-        sleep 5
-        docker restart db >/dev/null 2>&1 || true
-        sleep 5
-        docker restart testapp >/dev/null 2>&1 || true
-      fi
+      cd /opt/testapp && docker-compose up -d
+      sleep 5
+      docker restart db >/dev/null 2>&1 || true
+      sleep 5
+      docker restart testapp >/dev/null 2>&1 || true
+    else
+      echo "ERROR: docker images directory not found in ISO: $ISO_MOUNT/docker"
+      exit 1
     fi
+    require_port_listen 8080
     perl -0777 -pi -e 's/ansible_ssh_pass=\\S*/ansible_ssh_pass=root/g' /etc/ansible/hosts
     ;;
 
@@ -192,22 +209,27 @@ CONF
     mysql -e "FLUSH PRIVILEGES;"
 
     mkdir -p $ISO_MOUNT
-    if [ -f "$ISO_FILE" ]; then
-      mount -o loop "$ISO_FILE" $ISO_MOUNT || true
-      if [ -d "$ISO_MOUNT/web" ]; then
-        mysql webdb < $ISO_MOUNT/web/dump.sql || true
-        cp $ISO_MOUNT/web/index.php /var/www/html/
-        mkdir -p /var/www/html/images
-        cp $ISO_MOUNT/web/logo.png /var/www/html/images/
-        sed -i 's/password = "password";/password = "P@ssw0rd";/' /var/www/html/index.php
-        sed -i 's/dbname = "db";/dbname = "webdb";/' /var/www/html/index.php
-        chown -R www-data:www-data /var/www/html/
-        chmod -R 755 /var/www/html/
-        rm -f /var/www/html/index.html
-        sed -i 's/DirectoryIndex index.html/DirectoryIndex index.php index.html/' /etc/apache2/mods-enabled/dir.conf
-        systemctl restart apache2
-      fi
+    if [ ! -f "$ISO_FILE" ]; then
+      echo "ERROR: ISO file not found on hq-srv: $ISO_FILE"
+      exit 1
     fi
+    mount -o loop "$ISO_FILE" $ISO_MOUNT || true
+    if [ ! -d "$ISO_MOUNT/web" ]; then
+      echo "ERROR: web directory not found in ISO: $ISO_MOUNT/web"
+      exit 1
+    fi
+    mysql webdb < $ISO_MOUNT/web/dump.sql || true
+    cp $ISO_MOUNT/web/index.php /var/www/html/
+    mkdir -p /var/www/html/images
+    cp $ISO_MOUNT/web/logo.png /var/www/html/images/
+    sed -i 's/password = "password";/password = "P@ssw0rd";/' /var/www/html/index.php
+    sed -i 's/dbname = "db";/dbname = "webdb";/' /var/www/html/index.php
+    chown -R www-data:www-data /var/www/html/
+    chmod -R 755 /var/www/html/
+    rm -f /var/www/html/index.html
+    sed -i 's/DirectoryIndex index.html/DirectoryIndex index.php index.html/' /etc/apache2/mods-enabled/dir.conf
+    systemctl enable --now apache2
+    require_port_listen 80
     ;;
 
   "hq-cli")
@@ -378,6 +400,10 @@ ssh_run "$BR_RTR_IP" "br-rtr"
 
 echo ">>> STEP 3: HQ-SRV (RAID + Web + NFS) — ISO required"
 ssh_run "$HQ_SRV_IP" "hq-srv"
+curl -fsSI "http://${HQ_SRV_IP}:80" >/dev/null || {
+  echo "ERROR: ISP cannot reach HQ-SRV HTTP on ${HQ_SRV_IP}:80 after STEP 3"
+  exit 1
+}
 
 echo ">>> STEP 4: BR-SRV (Samba AD + Ansible + Docker) — ISO required"
 # временно ставим 8.8.8.8, если нужно скачать пакеты
@@ -389,6 +415,10 @@ sshpass -p "$ROOT_PASS" ssh -p "$SSH_PORT" \
   -o PubkeyAuthentication=no \
   root@"$BR_SRV_IP" "echo 'nameserver 8.8.8.8' > /etc/resolv.conf" || true
 ssh_run "$BR_SRV_IP" "br-srv"
+curl -fsSI "http://${BR_SRV_IP}:8080" >/dev/null || {
+  echo "ERROR: ISP cannot reach BR-SRV app on ${BR_SRV_IP}:8080 after STEP 4"
+  exit 1
+}
 
 echo ">>> STEP 5: HQ-CLI (Domain join + NFS)"
 ssh_run "$HQ_CLI_IP" "hq-cli"
