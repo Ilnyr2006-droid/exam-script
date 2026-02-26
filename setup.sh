@@ -13,6 +13,8 @@ echo ">>> Обнаружен основной интерфейс: $REAL_IFACE"
 ROLE=$1
 DOMAIN="au-team.irpo"
 VALID_ROLES="hq-srv br-srv hq-rtr br-rtr isp hq-cli"
+STATE_DIR="/var/lib/exam-setup"
+STATE_FILE="${STATE_DIR}/state.env"
 
 if [ -z "$ROLE" ]; then
     echo "Использование: ./setup.sh [роль]"
@@ -25,6 +27,101 @@ if ! echo "$VALID_ROLES" | grep -qw "$ROLE"; then
 fi
 
 echo "=== НАСТРОЙКА РОЛИ: $ROLE ==="
+
+print_ok() { echo "[OK] $1"; }
+print_fail() { echo "[FAIL] $1"; }
+check_pkg() {
+    local p="$1"
+    if dpkg -s "$p" >/dev/null 2>&1; then print_ok "package: $p"; return 0; fi
+    print_fail "package: $p"; return 1
+}
+check_service_any() {
+    local a="$1" b="$2"
+    if systemctl is-active --quiet "$a" >/dev/null 2>&1 || systemctl is-active --quiet "$b" >/dev/null 2>&1; then
+        print_ok "service: $a/$b"
+        return 0
+    fi
+    print_fail "service: $a/$b"; return 1
+}
+check_service() {
+    local s="$1"
+    if systemctl is-active --quiet "$s" >/dev/null 2>&1; then print_ok "service: $s"; return 0; fi
+    print_fail "service: $s"; return 1
+}
+check_port() {
+    local p="$1"
+    if ss -lnt 2>/dev/null | grep -q ":${p}\\b"; then print_ok "tcp port: $p"; return 0; fi
+    print_fail "tcp port: $p"; return 1
+}
+check_conf_contains() {
+    local f="$1" pat="$2" title="$3"
+    if [ -f "$f" ] && grep -Eq "$pat" "$f"; then print_ok "$title"; return 0; fi
+    print_fail "$title"; return 1
+}
+run_checks() {
+    local rc=0
+    echo "=== РЕЖИМ ПРОВЕРКИ ($ROLE) ==="
+    case "$ROLE" in
+        "hq-srv")
+            check_pkg openssh-server || rc=1
+            check_port 2026 || rc=1
+            check_service_any named bind9 || rc=1
+            check_conf_contains /etc/bind/named.conf.local 'zone "au-team\.irpo"' "dns forward zone au-team.irpo" || rc=1
+            check_conf_contains /etc/bind/named.conf.local 'in-addr\.arpa' "dns reverse zones present" || rc=1
+            ;;
+        "br-srv")
+            check_pkg openssh-server || rc=1
+            check_port 2026 || rc=1
+            ;;
+        "hq-rtr")
+            check_pkg frr || rc=1
+            check_service frr || rc=1
+            check_conf_contains /etc/frr/daemons '^ospfd=yes' "frr ospfd enabled" || rc=1
+            check_port 2026 || rc=1
+            check_conf_contains /etc/sysctl.conf 'net\.ipv4\.ip_forward=1' "ip_forward configured" || rc=1
+            ip link show gre30 >/dev/null 2>&1 && print_ok "gre30 interface exists" || { print_fail "gre30 interface exists"; rc=1; }
+            ;;
+        "br-rtr")
+            check_pkg frr || rc=1
+            check_service frr || rc=1
+            check_conf_contains /etc/frr/daemons '^ospfd=yes' "frr ospfd enabled" || rc=1
+            check_port 2026 || rc=1
+            check_conf_contains /etc/sysctl.conf 'net\.ipv4\.ip_forward=1' "ip_forward configured" || rc=1
+            ip link show gre30 >/dev/null 2>&1 && print_ok "gre30 interface exists" || { print_fail "gre30 interface exists"; rc=1; }
+            ;;
+        "isp")
+            check_pkg chrony || rc=1
+            check_service chrony || rc=1
+            check_conf_contains /etc/sysctl.conf 'net\.ipv4\.ip_forward=1' "ip_forward configured" || rc=1
+            if command -v iptables >/dev/null 2>&1; then
+                iptables -t nat -S 2>/dev/null | grep -q 'MASQUERADE' && print_ok "nat masquerade rule present" || { print_fail "nat masquerade rule present"; rc=1; }
+            else
+                print_fail "iptables command not found"
+                rc=1
+            fi
+            ;;
+        "hq-cli")
+            check_pkg openssh-server || rc=1
+            check_port 2026 || rc=1
+            ;;
+    esac
+    if [ "$rc" -eq 0 ]; then
+        echo "=== ПРОВЕРКА ПРОЙДЕНА ==="
+    else
+        echo "=== ПРОВЕРКА: ЕСТЬ ОШИБКИ ==="
+    fi
+    return "$rc"
+}
+
+# Если машина уже настраивалась ранее, запускаем только проверку.
+if [ -f "$STATE_FILE" ]; then
+    PREV_ROLE="$(awk -F= '/^ROLE=/{print $2}' "$STATE_FILE" 2>/dev/null || true)"
+    if [ -n "$PREV_ROLE" ] && [ "$PREV_ROLE" != "$ROLE" ]; then
+        echo "ВНИМАНИЕ: ранее на этой машине запускалась роль '$PREV_ROLE', сейчас запрошено '$ROLE'."
+    fi
+    run_checks
+    exit $?
+fi
 
 # --- Ввод IP-адресов (Enter = оставить значение по умолчанию) ---
 prompt_var() {
@@ -605,3 +702,8 @@ EOF
 esac
 
 echo "--- НАСТРОЙКА ЗАВЕРШЕНА. ПРОВЕРЬТЕ IP (ip a) ---"
+mkdir -p "$STATE_DIR"
+cat <<EOF > "$STATE_FILE"
+ROLE=$ROLE
+DATE=$(date -Iseconds)
+EOF
