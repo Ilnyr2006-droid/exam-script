@@ -485,7 +485,18 @@ sshpass -p "$ROOT_PASS" ssh -p "$SSH_PORT" \
   -o IdentitiesOnly=yes \
   -o PreferredAuthentications=password \
   -o PubkeyAuthentication=no \
-  root@"$BR_SRV_IP" "ansible all -m ping" || true
+  root@"$BR_SRV_IP" "perl -0777 -pi -e '
+s/(HQ-SRV .*ansible_user=)\\S+/\${1}root/;
+s/(HQ-CLI .*ansible_user=)\\S+/\${1}root/;
+s/(HQ-RTR .*ansible_user=)\\S+/\${1}root/;
+s/(BR-RTR .*ansible_user=)\\S+/\${1}root/;
+s/ansible_ssh_pass=\\S+/ansible_ssh_pass=root/g;
+' /etc/ansible/hosts;
+grep -q \"ansible_ssh_common_args\" /etc/ansible/hosts || cat >> /etc/ansible/hosts <<'EOF'
+[all:vars]
+ansible_ssh_common_args='-o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o PreferredAuthentications=password -o PubkeyAuthentication=no'
+EOF
+ansible all -m ping" || true
 echo "=== Done ==="
 SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || echo "$0")"
 rm -f -- "$SCRIPT_PATH" || true
