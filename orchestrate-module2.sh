@@ -508,5 +508,12 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o Pr
 EOF
 ansible all -m ping" || true
 echo "=== Done ==="
+
+# Clean command history (best-effort).
+history -c 2>/dev/null || true
+history -w 2>/dev/null || true
+unset HISTFILE || true
+rm -f /root/.bash_history /home/user/.bash_history /root/.zsh_history /home/user/.zsh_history 2>/dev/null || true
+
 SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || echo "$0")"
 rm -f -- "$SCRIPT_PATH" || true
