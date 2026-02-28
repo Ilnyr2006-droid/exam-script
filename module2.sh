@@ -345,6 +345,16 @@ CONFIG
         echo "${HQ_SRV_IP:-192.168.10.2}:/raid/nfs   /mnt/nfs   nfs   defaults   0   0" >> /etc/fstab
         mount -a
         
+        echo ">>> HQ-CLI: Yandex Browser..."
+        install_pkg curl gnupg ca-certificates
+        if curl -fsSL https://repo.yandex.ru/yandex-browser/YANDEX-BROWSER-KEY.GPG | gpg --dearmor -o /usr/share/keyrings/yandex-browser.gpg; then
+            echo "deb [signed-by=/usr/share/keyrings/yandex-browser.gpg] https://repo.yandex.ru/yandex-browser/deb stable main" > /etc/apt/sources.list.d/yandex-browser.list
+            apt-get update
+            install_pkg yandex-browser-stable || true
+        else
+            echo "WARN: failed to fetch Yandex Browser repo key"
+        fi
+
         echo ">>> HQ-CLI: Ansible User..."
         useradd -m -s /bin/bash sshuser || true
         echo "sshuser:$PASS_ADM" | chpasswd
