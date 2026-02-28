@@ -7,7 +7,7 @@ SSH_PORT=2026
 ROOT_PASS="root"
 PASS_ADM="P@ssw0rd"
 ISO_FILE="/home/user/Загрузки/Additional.iso"
-ISO_MOUNT="/mnt/additional"
+ISO_MOUNT="/media/cdrom0"
 DOMAIN="au-team.irpo"
 
 # Default IPs (per your layout)
@@ -36,6 +36,19 @@ ssh_run() {
     root@"$host" "ROLE='$role' PASS_ADM='$PASS_ADM' ISO_FILE='$ISO_FILE' ISO_MOUNT='$ISO_MOUNT' DOMAIN='$DOMAIN' HQ_SRV_IP='$HQ_SRV_IP' BR_SRV_IP='$BR_SRV_IP' HQ_RTR_IP='$HQ_RTR_IP' BR_RTR_IP='$BR_RTR_IP' HQ_CLI_IP='$HQ_CLI_IP' bash -s" <<'REMOTE'
 set -e
 install_pkg() { DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"; }
+prepare_iso_mount() {
+  # Prefer VMware CD/DVD mount if present.
+  if [ -d "/media/cdrom0" ]; then
+    ISO_MOUNT="/media/cdrom0"
+    return 0
+  fi
+  mkdir -p "$ISO_MOUNT"
+  if [ -f "$ISO_FILE" ]; then
+    mountpoint -q "$ISO_MOUNT" || mount -o loop "$ISO_FILE" "$ISO_MOUNT" || true
+    return 0
+  fi
+  return 1
+}
 require_port_listen() {
   local port="$1"
   if ! ss -lnt | grep -q ":${port}\\b"; then
@@ -113,12 +126,10 @@ CONF
       echo "ERROR: docker is not installed on br-srv"
       exit 1
     fi
-    mkdir -p $ISO_MOUNT
-    if [ ! -f "$ISO_FILE" ]; then
-      echo "ERROR: ISO file not found on br-srv: $ISO_FILE"
+    if ! prepare_iso_mount; then
+      echo "ERROR: ISO source not found on br-srv (expected /media/cdrom0 or $ISO_FILE)"
       exit 1
     fi
-    mount -o loop "$ISO_FILE" $ISO_MOUNT || true
     if [ -d "$ISO_MOUNT/docker" ]; then
       docker load -i $ISO_MOUNT/docker/mariadb_latest.tar
       docker load -i $ISO_MOUNT/docker/site_latest.tar
@@ -208,12 +219,10 @@ CONF
     mysql -e "GRANT ALL PRIVILEGES ON webdb.* TO 'user'@'localhost';"
     mysql -e "FLUSH PRIVILEGES;"
 
-    mkdir -p $ISO_MOUNT
-    if [ ! -f "$ISO_FILE" ]; then
-      echo "ERROR: ISO file not found on hq-srv: $ISO_FILE"
+    if ! prepare_iso_mount; then
+      echo "ERROR: ISO source not found on hq-srv (expected /media/cdrom0 or $ISO_FILE)"
       exit 1
     fi
-    mount -o loop "$ISO_FILE" $ISO_MOUNT || true
     if [ ! -d "$ISO_MOUNT/web" ]; then
       echo "ERROR: web directory not found in ISO: $ISO_MOUNT/web"
       exit 1
