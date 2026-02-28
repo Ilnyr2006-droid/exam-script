@@ -55,7 +55,7 @@ prepare_iso_mount() {
 }
 
 setup_chrony_client() {
-    install_pkg chrony
+    install_pkg chrony curl
     cat <<CONFIG > /etc/chrony/chrony.conf
 server 172.16.1.1 iburst
 CONFIG
@@ -71,7 +71,7 @@ case $ROLE in
         ISP_BR_IP="$(get_ip ens38)"
 
         echo ">>> ISP: Chrony..."
-        install_pkg chrony nginx apache2-utils
+        install_pkg chrony nginx apache2-utils curl
         cat <<CONFIG > /etc/chrony/chrony.conf
 server 0.debian.pool.ntp.org iburst
 local stratum 5
