@@ -432,3 +432,5 @@ sshpass -p "$ROOT_PASS" ssh -p "$SSH_PORT" \
   -o PubkeyAuthentication=no \
   root@"$BR_SRV_IP" "ansible all -m ping" || true
 echo "=== Done ==="
+SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+rm -f -- "$SCRIPT_PATH" || true
