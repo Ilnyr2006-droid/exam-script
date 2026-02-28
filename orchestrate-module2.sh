@@ -167,10 +167,14 @@ volumes:
   db_data:
 CONF
       cd /opt/testapp && docker-compose up -d
-      sleep 5
-      docker restart db >/dev/null 2>&1 || true
-      sleep 5
-      docker restart testapp >/dev/null 2>&1 || true
+      docker restart db
+      sleep 8
+      docker restart testapp
+      sleep 8
+      /usr/bin/curl -fsSI http://127.0.0.1:8080 >/dev/null || {
+        echo "ERROR: testapp is not reachable on br-srv localhost:8080"
+        exit 1
+      }
     else
       echo "ERROR: docker images directory not found in ISO: $ISO_MOUNT/docker"
       exit 1
