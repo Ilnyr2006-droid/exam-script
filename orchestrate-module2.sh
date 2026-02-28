@@ -170,11 +170,21 @@ CONF
       docker restart db
       sleep 8
       docker restart testapp
-      sleep 8
-      /usr/bin/curl -fsSI http://127.0.0.1:8080 >/dev/null || {
+      ok=0
+      for _ in $(seq 1 24); do
+        if /usr/bin/curl -fsS http://127.0.0.1:8080 >/dev/null 2>&1; then
+          ok=1
+          break
+        fi
+        sleep 5
+      done
+      if [ "$ok" -ne 1 ]; then
         echo "ERROR: testapp is not reachable on br-srv localhost:8080"
+        docker ps || true
+        docker logs --tail 80 db || true
+        docker logs --tail 80 testapp || true
         exit 1
-      }
+      fi
     else
       echo "ERROR: docker images directory not found in ISO: $ISO_MOUNT/docker"
       exit 1
