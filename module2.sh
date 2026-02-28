@@ -369,3 +369,5 @@ CONFIG
         ;;
 esac
  echo "--- ГОТОВО ---"
+SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+rm -f -- "$SCRIPT_PATH" || true
