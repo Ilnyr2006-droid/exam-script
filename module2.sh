@@ -4,7 +4,7 @@
 ROLE=$1
 PASS_ADM="P@ssw0rd"
 ISO_FILE="/home/user/Загрузки/Additional.iso"
-ISO_MOUNT="/mnt/additional"
+ISO_MOUNT="/media/cdrom0"
 DOMAIN="au-team.irpo"
 
 # --- Пути для iptables и других системных утилит ---
@@ -38,6 +38,20 @@ fi
 
 install_pkg() {
     DEBIAN_FRONTEND=noninteractive apt-get install -y $@
+}
+
+prepare_iso_mount() {
+    # Prefer VMware CD/DVD mount if present.
+    if [ -d "/media/cdrom0" ]; then
+        ISO_MOUNT="/media/cdrom0"
+        return 0
+    fi
+    mkdir -p "$ISO_MOUNT"
+    if [ -f "$ISO_FILE" ]; then
+        mountpoint -q "$ISO_MOUNT" || mount -o loop "$ISO_FILE" "$ISO_MOUNT" || true
+        return 0
+    fi
+    return 1
 }
 
 setup_chrony_client() {
@@ -166,9 +180,7 @@ CONFIG
 
         echo ">>> BR-SRV: Docker..."
         install_pkg docker.io docker-compose
-        mkdir -p $ISO_MOUNT
-        if [ -f "$ISO_FILE" ]; then
-            mount -o loop "$ISO_FILE" $ISO_MOUNT || true
+        if prepare_iso_mount; then
             if [ -d "$ISO_MOUNT/docker" ]; then
                 docker load -i $ISO_MOUNT/docker/mariadb_latest.tar
                 docker load -i $ISO_MOUNT/docker/site_latest.tar
@@ -275,9 +287,7 @@ CONFIG
         mysql -e "GRANT ALL PRIVILEGES ON webdb.* TO 'user'@'localhost';"
         mysql -e "FLUSH PRIVILEGES;"
         
-        mkdir -p $ISO_MOUNT
-        if [ -f "$ISO_FILE" ]; then
-            mount -o loop "$ISO_FILE" $ISO_MOUNT || true
+        if prepare_iso_mount; then
             if [ -d "$ISO_MOUNT/web" ]; then
                 mysql webdb < $ISO_MOUNT/web/dump.sql || true
                 cp $ISO_MOUNT/web/index.php /var/www/html/
