@@ -58,7 +58,7 @@ require_port_listen() {
 }
 
 setup_chrony_client() {
-  install_pkg chrony
+  install_pkg chrony curl
   cat <<CONF > /etc/chrony/chrony.conf
 server 172.16.1.1 iburst
 CONF
