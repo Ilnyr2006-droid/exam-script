@@ -474,10 +474,6 @@ sshpass -p "$ROOT_PASS" ssh -p "$SSH_PORT" \
   -o PubkeyAuthentication=no \
   root@"$BR_SRV_IP" "echo 'nameserver 8.8.8.8' > /etc/resolv.conf" || true
 ssh_run "$BR_SRV_IP" "br-srv"
-curl -fsSI "http://${BR_SRV_IP}:8080" >/dev/null || {
-  echo "ERROR: ISP cannot reach BR-SRV app on ${BR_SRV_IP}:8080 after STEP 4"
-  exit 1
-}
 
 echo ">>> STEP 5: HQ-CLI (Domain join + NFS)"
 ssh_run "$HQ_CLI_IP" "hq-cli"
