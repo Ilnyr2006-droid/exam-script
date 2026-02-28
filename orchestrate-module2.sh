@@ -194,15 +194,43 @@ CONF
     sed -i '/allow-update/d' /etc/bind/named.conf.options
     systemctl restart named || systemctl restart bind9
 
-    install_pkg mdadm
-    yes | mdadm --create /dev/md0 --level=0 --raid-devices=2 /dev/sdb /dev/sdc || true
-    mdadm --detail --scan >> /etc/mdadm/mdadm.conf
+    install_pkg mdadm parted
+    root_src="$(findmnt -n -o SOURCE / || true)"
+    root_disk="$(lsblk -no PKNAME "$root_src" 2>/dev/null || true)"
+    if [ -z "$root_disk" ]; then
+      root_disk="$(basename "$root_src" | sed -E 's/p?[0-9]+$//')"
+    fi
+    raid_disks=()
+    while read -r d; do
+      [ -z "$d" ] && continue
+      [ "$d" = "$root_disk" ] && continue
+      # only whole free disks (no partitions/children)
+      if [ "$(lsblk -n -o NAME "/dev/$d" | wc -l)" -ne 1 ]; then
+        continue
+      fi
+      raid_disks+=("/dev/$d")
+    done < <(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print $1}')
+    if [ "${#raid_disks[@]}" -lt 2 ]; then
+      echo "ERROR: not enough free disks for RAID0 on hq-srv"
+      lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT
+      exit 1
+    fi
+    RAID_D1="${raid_disks[0]}"
+    RAID_D2="${raid_disks[1]}"
+    /sbin/mdadm --stop /dev/md0 2>/dev/null || true
+    /sbin/mdadm --zero-superblock --force "$RAID_D1" "$RAID_D2" 2>/dev/null || true
+    /sbin/wipefs -a "$RAID_D1" 2>/dev/null || true
+    /sbin/wipefs -a "$RAID_D2" 2>/dev/null || true
+    yes | /sbin/mdadm --create /dev/md0 --level=0 --raid-devices=2 "$RAID_D1" "$RAID_D2"
+    /sbin/mdadm --detail --scan >> /etc/mdadm/mdadm.conf
     update-initramfs -u
-    echo -e "n\np\n1\n\n\nw" | fdisk /dev/md0 || true
-    mkfs.ext4 /dev/md0p1 || true
+    /usr/sbin/parted -s /dev/md0 mklabel gpt
+    /usr/sbin/parted -s /dev/md0 mkpart primary ext4 1MiB 100%
+    /sbin/mkfs.ext4 -F /dev/md0p1
     mkdir -p /raid
     mount /dev/md0p1 /raid
-    echo "/dev/md0p1   /raid   ext4   defaults   0   0" >> /etc/fstab
+    grep -q '^/dev/md0p1[[:space:]]\+/raid[[:space:]]' /etc/fstab || \
+      echo "/dev/md0p1   /raid   ext4   defaults   0   0" >> /etc/fstab
 
     install_pkg nfs-kernel-server
     mkdir -p /raid/nfs
