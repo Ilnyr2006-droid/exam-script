@@ -126,6 +126,9 @@ CONF
       echo "ERROR: docker is not installed on br-srv"
       exit 1
     fi
+    if ! command -v docker-compose >/dev/null 2>&1; then
+      install_pkg docker-compose
+    fi
     if ! prepare_iso_mount; then
       echo "ERROR: ISO source not found on br-srv (expected /media/cdrom0 or $ISO_FILE)"
       exit 1
@@ -166,9 +169,14 @@ services:
 volumes:
   db_data:
 CONF
+      cd /opt/testapp && docker-compose down -v --remove-orphans || true
       cd /opt/testapp && docker-compose up -d
       docker restart db
       sleep 8
+      docker exec db mariadb -uroot -p"root$PASS_ADM" -e "CREATE DATABASE IF NOT EXISTS testdb;" || true
+      docker exec db mariadb -uroot -p"root$PASS_ADM" -e "CREATE USER IF NOT EXISTS 'test'@'%' IDENTIFIED BY '$PASS_ADM';" || true
+      docker exec db mariadb -uroot -p"root$PASS_ADM" -e "ALTER USER 'test'@'%' IDENTIFIED BY '$PASS_ADM';" || true
+      docker exec db mariadb -uroot -p"root$PASS_ADM" -e "GRANT ALL PRIVILEGES ON testdb.* TO 'test'@'%'; FLUSH PRIVILEGES;" || true
       docker restart testapp
       ok=0
       for _ in $(seq 1 24); do
