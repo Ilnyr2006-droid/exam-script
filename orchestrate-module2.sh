@@ -18,7 +18,7 @@ BR_RTR_IP="172.16.2.2"
 HQ_CLI_IP="192.168.20.2"
 
 echo ">>> Pre-flight: sshpass + route to HQ-CLI"
-apt-get install -y sshpass
+apt-get install -y sshpass curl
 /sbin/ip route add 192.168.20.0/28 via 172.16.1.2 || true
 
 ssh_run() {
@@ -390,7 +390,7 @@ ROLE="isp" bash -s <<'LOCAL'
 set -e
 install_pkg() { DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"; }
 
-install_pkg chrony nginx apache2-utils sshpass
+install_pkg chrony nginx apache2-utils sshpass curl
 cat <<CONF > /etc/chrony/chrony.conf
 server 0.debian.pool.ntp.org iburst
 local stratum 5
