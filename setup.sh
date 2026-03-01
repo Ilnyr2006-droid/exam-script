@@ -162,13 +162,13 @@ fi
 
 # IP адреса (с CIDR там, где нужно)
 prompt_var HQ_SRV_IP_CIDR "192.168.10.2/27" "HQ-SRV IP/CIDR"
-prompt_var BR_SRV_IP_CIDR "192.168.100.2/27" "BR-SRV IP/CIDR"
+prompt_var BR_SRV_IP_CIDR "192.168.100.2/28" "BR-SRV IP/CIDR"
 prompt_var HQ_RTR_WAN_IP_CIDR "172.16.1.2/28" "HQ-RTR WAN IP/CIDR"
 prompt_var BR_RTR_WAN_IP_CIDR "172.16.2.2/28" "BR-RTR WAN IP/CIDR"
 prompt_var HQ_RTR_VLAN100_IP_CIDR "192.168.10.1/27" "HQ-RTR VLAN100 IP/CIDR"
 prompt_var HQ_RTR_VLAN200_IP_CIDR "192.168.20.1/28" "HQ-RTR VLAN200 IP/CIDR"
 prompt_var HQ_RTR_VLAN999_IP_CIDR "192.168.250.1/29" "HQ-RTR VLAN999 IP/CIDR"
-prompt_var BR_RTR_LAN_IP_CIDR "192.168.100.1/27" "BR-RTR LAN IP/CIDR"
+prompt_var BR_RTR_LAN_IP_CIDR "192.168.100.1/28" "BR-RTR LAN IP/CIDR"
 prompt_var HQ_CLI_IP_CIDR "192.168.20.2/28" "HQ-CLI IP/CIDR"
 prompt_var ISP_HQ_IP_CIDR "172.16.1.1/28" "ISP IP toward HQ (${ISP_HQ_IFACE}) IP/CIDR"
 prompt_var ISP_BR_IP_CIDR "172.16.2.1/28" "ISP IP toward BR (${ISP_BR_IFACE}) IP/CIDR"
@@ -176,7 +176,7 @@ prompt_var ISP_BR_IP_CIDR "172.16.2.1/28" "ISP IP toward BR (${ISP_BR_IFACE}) IP
 # Сети (для маршрутов, DHCP, OSPF)
 prompt_var HQ_SRV_NET "192.168.10.0/27" "HQ-SRV network/CIDR"
 prompt_var HQ_CLI_NET "192.168.20.0/28" "HQ-CLI network/CIDR"
-prompt_var BR_SRV_NET "192.168.100.0/27" "BR-SRV network/CIDR"
+prompt_var BR_SRV_NET "192.168.100.0/28" "BR-SRV network/CIDR"
 prompt_var GRE_NET "10.0.0.0/30" "GRE network/CIDR"
 prompt_var GRE_HQ_IP "10.0.0.1" "GRE IP on HQ-RTR (no CIDR)"
 prompt_var GRE_BR_IP "10.0.0.2" "GRE IP on BR-RTR (no CIDR)"
