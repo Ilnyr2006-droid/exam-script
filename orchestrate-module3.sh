@@ -140,6 +140,10 @@ EOF
 write_firewall_script() {
   local dest="$1"
   local wan_if="${2:-ens33}"
+  install_pkg iptables iptables-persistent
+  # Avoid nftables/iptables conflict that may drop SSH with "No route to host".
+  nft flush ruleset 2>/dev/null || true
+  systemctl disable --now nftables 2>/dev/null || true
   cat > /etc/start_iptables.sh <<EOF
 #!/bin/bash
 set -e
@@ -409,4 +413,3 @@ echo ">>> STEP 5: HQ-SRV (task6-client/task9)"
 ssh_run "$HQ_SRV_IP" "hq-srv"
 
 echo "=== module3 orchestration done ==="
-
