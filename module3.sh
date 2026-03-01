@@ -238,14 +238,14 @@ setup_fail2ban_hq_srv() {
 bantime = 60
 findtime = 600
 maxretry = 3
-backend = auto
+backend = systemd
 banaction = iptables-multiport
 action = %(action_)s
 [sshd]
 enabled = true
 port = 2026
 filter = sshd
-logpath = /var/log/auth.log
+journalmatch = _SYSTEMD_UNIT=ssh.service + _COMM=sshd
 maxretry = 3
 bantime = 60
 findtime = 600
