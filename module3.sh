@@ -147,6 +147,12 @@ IPT="\$(command -v iptables 2>/dev/null || echo /usr/sbin/iptables)"
 "\$IPT" -A INPUT -p udp --dport 4500 -j ACCEPT
 "\$IPT" -A OUTPUT -p udp --dport 4500 -j ACCEPT
 "\$IPT" -A FORWARD -p udp --dport 4500 -j ACCEPT
+"\$IPT" -A OUTPUT -p udp --dport 53 -j ACCEPT
+"\$IPT" -A OUTPUT -p tcp --dport 53 -j ACCEPT
+"\$IPT" -A INPUT -p udp --sport 53 -j ACCEPT
+"\$IPT" -A INPUT -p tcp --sport 53 -j ACCEPT
+"\$IPT" -A FORWARD -p udp --dport 53 -j ACCEPT
+"\$IPT" -A FORWARD -p tcp --dport 53 -j ACCEPT
 "\$IPT" -A INPUT -p tcp -m multiport --dports 22,2026,80,443,8080 -j ACCEPT
 "\$IPT" -A OUTPUT -p tcp -m multiport --dports 22,2026,80,443,8080 -j ACCEPT
 "\$IPT" -A FORWARD -p tcp -m multiport --dports 22,2026,80,443,8080 -j ACCEPT
@@ -278,4 +284,3 @@ case "$ROLE" in
 esac
 
 echo "=== module3 done for role: $ROLE ==="
-
