@@ -159,10 +159,10 @@ services:
     image: mariadb:10.11
     container_name: db
     environment:
-      - MYSQL_ROOT_PASSWORD=root$PASS_ADM
-      - MYSQL_DATABASE=testdb
-      - MYSQL_USER=test
-      - MYSQL_PASSWORD=$PASS_ADM
+      - MARIADB_ROOT_PASSWORD=root$PASS_ADM
+      - MARIADB_DATABASE=testdb
+      - MARIADB_USER=test
+      - MARIADB_PASSWORD=$PASS_ADM
     volumes:
       - db_data:/var/lib/mysql
     restart: unless-stopped
@@ -173,10 +173,18 @@ CONF
       cd /opt/testapp && docker-compose up -d
       docker restart db
       sleep 8
-      docker exec db mariadb -uroot -p"root$PASS_ADM" -e "CREATE DATABASE IF NOT EXISTS testdb;" || true
-      docker exec db mariadb -uroot -p"root$PASS_ADM" -e "CREATE USER IF NOT EXISTS 'test'@'%' IDENTIFIED BY '$PASS_ADM';" || true
-      docker exec db mariadb -uroot -p"root$PASS_ADM" -e "ALTER USER 'test'@'%' IDENTIFIED BY '$PASS_ADM';" || true
-      docker exec db mariadb -uroot -p"root$PASS_ADM" -e "GRANT ALL PRIVILEGES ON testdb.* TO 'test'@'%'; FLUSH PRIVILEGES;" || true
+      if ! docker exec db mariadb -uroot -p"root$PASS_ADM" -e "SELECT 1;" >/dev/null 2>&1; then
+        docker exec db mariadb -uroot -e "SELECT 1;" >/dev/null 2>&1 || true
+      fi
+      if docker exec db mariadb -uroot -p"root$PASS_ADM" -e "SELECT 1;" >/dev/null 2>&1; then
+        DB_ROOT_AUTH="-uroot -proot$PASS_ADM"
+      else
+        DB_ROOT_AUTH="-uroot"
+      fi
+      docker exec db mariadb $DB_ROOT_AUTH -e "CREATE DATABASE IF NOT EXISTS testdb;" || true
+      docker exec db mariadb $DB_ROOT_AUTH -e "CREATE USER IF NOT EXISTS 'test'@'%' IDENTIFIED BY '$PASS_ADM';" || true
+      docker exec db mariadb $DB_ROOT_AUTH -e "ALTER USER 'test'@'%' IDENTIFIED BY '$PASS_ADM';" || true
+      docker exec db mariadb $DB_ROOT_AUTH -e "GRANT ALL PRIVILEGES ON testdb.* TO 'test'@'%'; FLUSH PRIVILEGES;" || true
       docker restart testapp
       ok=0
       for _ in $(seq 1 24); do
