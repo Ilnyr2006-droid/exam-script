@@ -153,6 +153,8 @@ IPT="\$(command -v iptables 2>/dev/null || echo /usr/sbin/iptables)"
 "\$IPT" -A INPUT -p tcp --sport 53 -j ACCEPT
 "\$IPT" -A FORWARD -p udp --dport 53 -j ACCEPT
 "\$IPT" -A FORWARD -p tcp --dport 53 -j ACCEPT
+"\$IPT" -A FORWARD -p tcp -m multiport --dports 88,135,139,389,445,464,636,3268,3269 -j ACCEPT
+"\$IPT" -A FORWARD -p udp -m multiport --dports 88,137,138,389,464 -j ACCEPT
 "\$IPT" -A INPUT -p tcp -m multiport --dports 22,2026,80,443,8080 -j ACCEPT
 "\$IPT" -A OUTPUT -p tcp -m multiport --dports 22,2026,80,443,8080 -j ACCEPT
 "\$IPT" -A FORWARD -p tcp -m multiport --dports 22,2026,80,443,8080 -j ACCEPT
