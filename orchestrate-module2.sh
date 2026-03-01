@@ -398,12 +398,26 @@ check_ssh() {
     root@"$host" "echo ok" >/dev/null 2>&1
 }
 
+resolve_hq_cli_ip() {
+  # Try default first, then DHCP fallback candidates.
+  for candidate in "$HQ_CLI_IP" 192.168.20.3 192.168.20.4; do
+    [ -z "$candidate" ] && continue
+    echo ">>> Проверка SSH: hq-cli ($candidate)"
+    if check_ssh "$candidate"; then
+      HQ_CLI_IP="$candidate"
+      echo ">>> SSH OK: hq-cli (используем $HQ_CLI_IP)"
+      return 0
+    fi
+  done
+  echo "!!! SSH FAIL: hq-cli (пробовали: 192.168.20.2, 192.168.20.3, 192.168.20.4)"
+  return 1
+}
+
 for pair in \
   "$HQ_RTR_IP hq-rtr" \
   "$BR_RTR_IP br-rtr" \
   "$HQ_SRV_IP hq-srv" \
-  "$BR_SRV_IP br-srv" \
-  "$HQ_CLI_IP hq-cli"
+  "$BR_SRV_IP br-srv"
 do
   host="${pair%% *}"
   role="${pair##* }"
@@ -415,6 +429,8 @@ do
     exit 1
   fi
 done
+
+resolve_hq_cli_ip || exit 1
 
 echo ">>> STEP 1: ISP (NTP + Proxy)"
 # запуск локально на ISP
