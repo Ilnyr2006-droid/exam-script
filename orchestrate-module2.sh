@@ -17,9 +17,29 @@ HQ_RTR_IP="172.16.1.2"
 BR_RTR_IP="172.16.2.2"
 HQ_CLI_IP="192.168.20.2"
 
+prompt_ip() {
+  local label="$1"
+  local current="$2"
+  local input=""
+  read -r -p "$label [$current]: " input
+  if [ -n "$input" ]; then
+    echo "$input"
+  else
+    echo "$current"
+  fi
+}
+
+echo "=== Ввод IP адресов перед проверкой SSH ==="
+HQ_RTR_IP="$(prompt_ip "HQ-RTR IP" "$HQ_RTR_IP")"
+BR_RTR_IP="$(prompt_ip "BR-RTR IP" "$BR_RTR_IP")"
+HQ_SRV_IP="$(prompt_ip "HQ-SRV IP" "$HQ_SRV_IP")"
+BR_SRV_IP="$(prompt_ip "BR-SRV IP" "$BR_SRV_IP")"
+HQ_CLI_IP="$(prompt_ip "HQ-CLI IP" "$HQ_CLI_IP")"
+echo "Используем IP: HQ-RTR=$HQ_RTR_IP BR-RTR=$BR_RTR_IP HQ-SRV=$HQ_SRV_IP BR-SRV=$BR_SRV_IP HQ-CLI=$HQ_CLI_IP"
+
 echo ">>> Pre-flight: sshpass + route to HQ-CLI"
 apt-get install -y sshpass curl
-/sbin/ip route add 192.168.20.0/28 via 172.16.1.2 || true
+/sbin/ip route add 192.168.20.0/28 via "$HQ_RTR_IP" || true
 
 ssh_run() {
   local host="$1"
@@ -444,7 +464,7 @@ resolve_hq_cli_ip || exit 1
 
 echo ">>> STEP 1: ISP (NTP + Proxy)"
 # запуск локально на ISP
-ROLE="isp" bash -s <<'LOCAL'
+ROLE="isp" HQ_SRV_IP="$HQ_SRV_IP" BR_SRV_IP="$BR_SRV_IP" bash -s <<'LOCAL'
 set -e
 install_pkg() { DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"; }
 
@@ -459,9 +479,9 @@ CONF
 systemctl restart chrony
 
 htpasswd -bc /etc/nginx/.htpasswd WEB P@ssw0rd
-cat <<'CONF' > /etc/nginx/sites-available/reverse_proxy.conf
-upstream hq_srv_app { server 192.168.10.2:80; }
-upstream testapp_app { server 192.168.100.2:8080; }
+cat <<CONF > /etc/nginx/sites-available/reverse_proxy.conf
+upstream hq_srv_app { server ${HQ_SRV_IP}:80; }
+upstream testapp_app { server ${BR_SRV_IP}:8080; }
 server {
     listen 80;
     server_name web.au-team.irpo;
