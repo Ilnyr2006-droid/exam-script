@@ -346,13 +346,15 @@ CONF
     showmount -e ${HQ_SRV_IP} || true
     mkdir -p /mnt/nfs
     mount -t nfs ${HQ_SRV_IP}:/raid/nfs /mnt/nfs || true
-    df -h | grep nfs || true
     grep -q "${HQ_SRV_IP}:/raid/nfs" /etc/fstab || \
-      echo "${HQ_SRV_IP}:/raid/nfs   /mnt/nfs   nfs   defaults   0   0" >> /etc/fstab
+      echo "${HQ_SRV_IP}:/raid/nfs /mnt/nfs nfs defaults 0 0" >> /etc/fstab
+    mount | grep ' /mnt/nfs ' || true
+
+    # remount test for auto-mount
     umount /mnt/nfs || true
     systemctl daemon-reload || true
     mount -a || true
-    df -h | grep nfs || true
+    mount | grep ' /mnt/nfs ' || echo "WARN: /mnt/nfs is not mounted after mount -a"
 
     # Yandex Browser (best-effort)
     install_pkg curl gnupg ca-certificates
