@@ -99,7 +99,8 @@ EOF
 EOF
   systemctl enable --now strongswan-starter
   systemctl restart strongswan-starter
-  /usr/sbin/ipsec restart || true
+  rm -f /var/run/charon.pid /var/run/starter.charon.pid || true
+  systemctl restart strongswan-starter || true
 }
 
 setup_ipsec_br_rtr() {
@@ -134,7 +135,8 @@ EOF
 EOF
   systemctl enable --now strongswan-starter
   systemctl restart strongswan-starter
-  /usr/sbin/ipsec restart || true
+  rm -f /var/run/charon.pid /var/run/starter.charon.pid || true
+  systemctl restart strongswan-starter || true
 }
 
 write_firewall_script() {
@@ -229,6 +231,7 @@ DEST="$dest"
 EOF
   chmod +x /etc/start_iptables.sh
   /etc/start_iptables.sh
+  mkdir -p /etc/iptables
   /usr/sbin/iptables-save > /etc/iptables/rules.v4
 }
 
