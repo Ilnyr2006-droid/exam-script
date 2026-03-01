@@ -97,8 +97,7 @@ EOF
   cat > /etc/ipsec.secrets <<'EOF'
 @hq-rtr.au-team.irpo @br-rtr.au-team.irpo : PSK "P@ssw0rd"
 EOF
-  systemctl enable --now strongswan-starter
-  systemctl restart strongswan-starter
+  systemctl enable strongswan-starter >/dev/null 2>&1 || true
   rm -f /var/run/charon.pid /var/run/starter.charon.pid || true
   systemctl restart strongswan-starter || true
 }
@@ -133,8 +132,7 @@ EOF
   cat > /etc/ipsec.secrets <<'EOF'
 @br-rtr.au-team.irpo @hq-rtr.au-team.irpo : PSK "P@ssw0rd"
 EOF
-  systemctl enable --now strongswan-starter
-  systemctl restart strongswan-starter
+  systemctl enable strongswan-starter >/dev/null 2>&1 || true
   rm -f /var/run/charon.pid /var/run/starter.charon.pid || true
   systemctl restart strongswan-starter || true
 }
@@ -151,88 +149,90 @@ write_firewall_script() {
 set -e
 WAN_IF="$wan_if"
 DEST="$dest"
-/sbin/iptables -F
-/sbin/iptables -t nat -F
-/sbin/iptables -t mangle -F
-/sbin/iptables -t raw -F
-/sbin/iptables -P INPUT DROP
-/sbin/iptables -P FORWARD DROP
-/sbin/iptables -P OUTPUT DROP
-/sbin/iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-/sbin/iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
-/sbin/iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-/sbin/iptables -A INPUT -p icmp -j ACCEPT
-/sbin/iptables -A FORWARD -p icmp -j ACCEPT
-/sbin/iptables -A OUTPUT -p icmp -j ACCEPT
-/sbin/iptables -A INPUT -p ospf -j ACCEPT
-/sbin/iptables -A FORWARD -p ospf -j ACCEPT
-/sbin/iptables -A OUTPUT -p ospf -j ACCEPT
-/sbin/iptables -A INPUT -p gre -j ACCEPT
-/sbin/iptables -A FORWARD -p gre -j ACCEPT
-/sbin/iptables -A OUTPUT -p gre -j ACCEPT
-/sbin/iptables -A INPUT -p 50 -j ACCEPT
-/sbin/iptables -A OUTPUT -p 50 -j ACCEPT
-/sbin/iptables -A FORWARD -p 50 -j ACCEPT
-/sbin/iptables -A INPUT -p 51 -j ACCEPT
-/sbin/iptables -A OUTPUT -p 51 -j ACCEPT
-/sbin/iptables -A FORWARD -p 51 -j ACCEPT
-/sbin/iptables -A INPUT -p udp --dport 500 -j ACCEPT
-/sbin/iptables -A OUTPUT -p udp --dport 500 -j ACCEPT
-/sbin/iptables -A FORWARD -p udp --dport 500 -j ACCEPT
-/sbin/iptables -A INPUT -p udp --dport 4500 -j ACCEPT
-/sbin/iptables -A OUTPUT -p udp --dport 4500 -j ACCEPT
-/sbin/iptables -A FORWARD -p udp --dport 4500 -j ACCEPT
-/sbin/iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
-/sbin/iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
-/sbin/iptables -A FORWARD -p udp --dport 53 -j ACCEPT
-/sbin/iptables -A FORWARD -p tcp --dport 53 -j ACCEPT
-/sbin/iptables -A INPUT -p udp --dport 53 -j ACCEPT
-/sbin/iptables -A INPUT -p tcp --dport 53 -j ACCEPT
-/sbin/iptables -A INPUT -p tcp -m multiport --dports 80,443,8080 -j ACCEPT
-/sbin/iptables -A OUTPUT -p tcp -m multiport --dports 80,443,8080 -j ACCEPT
-/sbin/iptables -A FORWARD -p tcp -m multiport --dports 80,443,8080 -j ACCEPT
-/sbin/iptables -A INPUT -p udp --sport 68 --dport 67 -j ACCEPT
-/sbin/iptables -A OUTPUT -p udp --sport 67 --dport 68 -j ACCEPT
-/sbin/iptables -A FORWARD -p udp --sport 68 --dport 67 -j ACCEPT
-/sbin/iptables -A FORWARD -p udp --sport 67 --dport 68 -j ACCEPT
-/sbin/iptables -A INPUT -p tcp --dport 2049 -j ACCEPT
-/sbin/iptables -A OUTPUT -p tcp --dport 2049 -j ACCEPT
-/sbin/iptables -A FORWARD -p tcp --dport 2049 -j ACCEPT
-/sbin/iptables -A INPUT -p udp --dport 123 -j ACCEPT
-/sbin/iptables -A OUTPUT -p udp --dport 123 -j ACCEPT
-/sbin/iptables -A FORWARD -p udp --dport 123 -j ACCEPT
-/sbin/iptables -A INPUT -p udp --dport 514 -j ACCEPT
-/sbin/iptables -A INPUT -p tcp --dport 514 -j ACCEPT
-/sbin/iptables -A OUTPUT -p udp --dport 514 -j ACCEPT
-/sbin/iptables -A OUTPUT -p tcp --dport 514 -j ACCEPT
-/sbin/iptables -A FORWARD -p udp --dport 514 -j ACCEPT
-/sbin/iptables -A FORWARD -p tcp --dport 514 -j ACCEPT
-/sbin/iptables -A INPUT -p tcp -m multiport --dports 22,2026 -j ACCEPT
-/sbin/iptables -A OUTPUT -p tcp -m multiport --dports 22,2026 -j ACCEPT
-/sbin/iptables -A FORWARD -p tcp -m multiport --dports 22,2026 -j ACCEPT
-/sbin/iptables -A INPUT -p tcp -m multiport --dports 10050,10051 -j ACCEPT
-/sbin/iptables -A OUTPUT -p tcp -m multiport --dports 10050,10051 -j ACCEPT
-/sbin/iptables -A FORWARD -p tcp -m multiport --dports 10050,10051 -j ACCEPT
-/sbin/iptables -A INPUT -p tcp --dport 631 -j ACCEPT
-/sbin/iptables -A INPUT -p udp --dport 631 -j ACCEPT
-/sbin/iptables -A OUTPUT -p tcp --dport 631 -j ACCEPT
-/sbin/iptables -A OUTPUT -p udp --dport 631 -j ACCEPT
-/sbin/iptables -A FORWARD -p tcp --dport 631 -j ACCEPT
-/sbin/iptables -A FORWARD -p udp --dport 631 -j ACCEPT
-/sbin/iptables -A INPUT -p tcp -m multiport --dports 88,389,636,3268,3269,139,445,137,138 -j ACCEPT
-/sbin/iptables -A OUTPUT -p tcp -m multiport --dports 88,389,636,3268,3269,139,445,137,138 -j ACCEPT
-/sbin/iptables -A FORWARD -p tcp -m multiport --dports 88,389,636,3268,3269,139,445,137,138 -j ACCEPT
-/sbin/iptables -t nat -A PREROUTING -i "\$WAN_IF" -p tcp --dport 8080 -j DNAT --to-destination \${DEST}:8080
-/sbin/iptables -t nat -A PREROUTING -i "\$WAN_IF" -p tcp --dport 80 -j DNAT --to-destination \${DEST}:80
-/sbin/iptables -t nat -A PREROUTING -i "\$WAN_IF" -p tcp --dport 2026 -j DNAT --to-destination \${DEST}:2026
-/sbin/iptables -A FORWARD -p tcp -d "\$DEST" --dport 8080 -j ACCEPT
-/sbin/iptables -A FORWARD -p tcp -d "\$DEST" --dport 80 -j ACCEPT
-/sbin/iptables -A FORWARD -p tcp -d "\$DEST" --dport 2026 -j ACCEPT
+IPT="$(command -v iptables 2>/dev/null || echo /usr/sbin/iptables)"
+
+"$IPT" -F
+"$IPT" -t nat -F
+"$IPT" -t mangle -F
+"$IPT" -t raw -F
+"$IPT" -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+"$IPT" -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+"$IPT" -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+"$IPT" -A INPUT -p icmp -j ACCEPT
+"$IPT" -A FORWARD -p icmp -j ACCEPT
+"$IPT" -A OUTPUT -p icmp -j ACCEPT
+"$IPT" -A INPUT -p ospf -j ACCEPT
+"$IPT" -A FORWARD -p ospf -j ACCEPT
+"$IPT" -A OUTPUT -p ospf -j ACCEPT
+"$IPT" -A INPUT -p gre -j ACCEPT
+"$IPT" -A FORWARD -p gre -j ACCEPT
+"$IPT" -A OUTPUT -p gre -j ACCEPT
+"$IPT" -A INPUT -p 50 -j ACCEPT
+"$IPT" -A OUTPUT -p 50 -j ACCEPT
+"$IPT" -A FORWARD -p 50 -j ACCEPT
+"$IPT" -A INPUT -p 51 -j ACCEPT
+"$IPT" -A OUTPUT -p 51 -j ACCEPT
+"$IPT" -A FORWARD -p 51 -j ACCEPT
+"$IPT" -A INPUT -p udp --dport 500 -j ACCEPT
+"$IPT" -A OUTPUT -p udp --dport 500 -j ACCEPT
+"$IPT" -A FORWARD -p udp --dport 500 -j ACCEPT
+"$IPT" -A INPUT -p udp --dport 4500 -j ACCEPT
+"$IPT" -A OUTPUT -p udp --dport 4500 -j ACCEPT
+"$IPT" -A FORWARD -p udp --dport 4500 -j ACCEPT
+"$IPT" -A OUTPUT -p udp --dport 53 -j ACCEPT
+"$IPT" -A OUTPUT -p tcp --dport 53 -j ACCEPT
+"$IPT" -A FORWARD -p udp --dport 53 -j ACCEPT
+"$IPT" -A FORWARD -p tcp --dport 53 -j ACCEPT
+"$IPT" -A INPUT -p udp --dport 53 -j ACCEPT
+"$IPT" -A INPUT -p tcp --dport 53 -j ACCEPT
+"$IPT" -A INPUT -p tcp -m multiport --dports 80,443,8080 -j ACCEPT
+"$IPT" -A OUTPUT -p tcp -m multiport --dports 80,443,8080 -j ACCEPT
+"$IPT" -A FORWARD -p tcp -m multiport --dports 80,443,8080 -j ACCEPT
+"$IPT" -A INPUT -p udp --sport 68 --dport 67 -j ACCEPT
+"$IPT" -A OUTPUT -p udp --sport 67 --dport 68 -j ACCEPT
+"$IPT" -A FORWARD -p udp --sport 68 --dport 67 -j ACCEPT
+"$IPT" -A FORWARD -p udp --sport 67 --dport 68 -j ACCEPT
+"$IPT" -A INPUT -p tcp --dport 2049 -j ACCEPT
+"$IPT" -A OUTPUT -p tcp --dport 2049 -j ACCEPT
+"$IPT" -A FORWARD -p tcp --dport 2049 -j ACCEPT
+"$IPT" -A INPUT -p udp --dport 123 -j ACCEPT
+"$IPT" -A OUTPUT -p udp --dport 123 -j ACCEPT
+"$IPT" -A FORWARD -p udp --dport 123 -j ACCEPT
+"$IPT" -A INPUT -p udp --dport 514 -j ACCEPT
+"$IPT" -A INPUT -p tcp --dport 514 -j ACCEPT
+"$IPT" -A OUTPUT -p udp --dport 514 -j ACCEPT
+"$IPT" -A OUTPUT -p tcp --dport 514 -j ACCEPT
+"$IPT" -A FORWARD -p udp --dport 514 -j ACCEPT
+"$IPT" -A FORWARD -p tcp --dport 514 -j ACCEPT
+"$IPT" -A INPUT -p tcp -m multiport --dports 22,2026 -j ACCEPT
+"$IPT" -A OUTPUT -p tcp -m multiport --dports 22,2026 -j ACCEPT
+"$IPT" -A FORWARD -p tcp -m multiport --dports 22,2026 -j ACCEPT
+"$IPT" -A INPUT -p tcp -m multiport --dports 10050,10051 -j ACCEPT
+"$IPT" -A OUTPUT -p tcp -m multiport --dports 10050,10051 -j ACCEPT
+"$IPT" -A FORWARD -p tcp -m multiport --dports 10050,10051 -j ACCEPT
+"$IPT" -A INPUT -p tcp --dport 631 -j ACCEPT
+"$IPT" -A INPUT -p udp --dport 631 -j ACCEPT
+"$IPT" -A OUTPUT -p tcp --dport 631 -j ACCEPT
+"$IPT" -A OUTPUT -p udp --dport 631 -j ACCEPT
+"$IPT" -A FORWARD -p tcp --dport 631 -j ACCEPT
+"$IPT" -A FORWARD -p udp --dport 631 -j ACCEPT
+"$IPT" -A INPUT -p tcp -m multiport --dports 88,389,636,3268,3269,139,445,137,138 -j ACCEPT
+"$IPT" -A OUTPUT -p tcp -m multiport --dports 88,389,636,3268,3269,139,445,137,138 -j ACCEPT
+"$IPT" -A FORWARD -p tcp -m multiport --dports 88,389,636,3268,3269,139,445,137,138 -j ACCEPT
+"$IPT" -P INPUT DROP
+"$IPT" -P FORWARD DROP
+"$IPT" -P OUTPUT DROP
+"$IPT" -t nat -A PREROUTING -i "\$WAN_IF" -p tcp --dport 8080 -j DNAT --to-destination \${DEST}:8080
+"$IPT" -t nat -A PREROUTING -i "\$WAN_IF" -p tcp --dport 80 -j DNAT --to-destination \${DEST}:80
+"$IPT" -t nat -A PREROUTING -i "\$WAN_IF" -p tcp --dport 2026 -j DNAT --to-destination \${DEST}:2026
+"$IPT" -A FORWARD -p tcp -d "\$DEST" --dport 8080 -j ACCEPT
+"$IPT" -A FORWARD -p tcp -d "\$DEST" --dport 80 -j ACCEPT
+"$IPT" -A FORWARD -p tcp -d "\$DEST" --dport 2026 -j ACCEPT
 EOF
   chmod +x /etc/start_iptables.sh
   /etc/start_iptables.sh
   mkdir -p /etc/iptables
-  /usr/sbin/iptables-save > /etc/iptables/rules.v4
+  $(command -v iptables-save 2>/dev/null || echo /usr/sbin/iptables-save) > /etc/iptables/rules.v4
 }
 
 setup_rsyslog_server_br_srv() {
