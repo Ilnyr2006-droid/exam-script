@@ -203,6 +203,12 @@ main() {
   run_remote "$BR_RTR_IP" "test -x /etc/start_iptables.sh && iptables -S | grep -q '^-P INPUT DROP'"
   record_check "4" "Firewall-скрипт и DROP policy на BR-RTR" "/etc/start_iptables.sh" "$?"
 
+  run_remote "$HQ_SRV_IP" "systemctl is-active cups >/dev/null 2>&1 && lpstat -v 2>/dev/null | grep -q 'CUPS-PDF'"
+  record_check "5" "CUPS сервер и CUPS-PDF настроены на HQ-SRV" "cups" "$?"
+
+  run_remote "$HQ_CLI_IP" "lpstat -v 2>/dev/null | grep -q 'Virtual_PDF_Printer'"
+  record_check "5" "Virtual_PDF_Printer добавлен на HQ-CLI" "lpstat" "$?"
+
   run_remote "$BR_SRV_IP" "systemctl is-active rsyslog >/dev/null 2>&1 && ss -lun | grep -q ':514 '"
   record_check "6" "Rsyslog сервер на BR-SRV слушает 514/udp" "imudp/imtcp" "$?"
 
