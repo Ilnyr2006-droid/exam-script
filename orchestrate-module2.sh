@@ -489,9 +489,9 @@ server {
     auth_basic_user_file /etc/nginx/.htpasswd;
     location / {
         proxy_pass http://hq_srv_app;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     }
 }
 server {
@@ -499,8 +499,8 @@ server {
     server_name docker.au-team.irpo;
     location / {
         proxy_pass http://testapp_app;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
     }
 }
 CONF
