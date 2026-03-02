@@ -645,6 +645,7 @@ EOF
         ;;
 
     "isp")
+        setup_ssh
         # Добавляем маршруты прямо в конфиг интерфейса, чтобы они применялись при старте
         cat <<EOF > /etc/network/interfaces
 auto lo
