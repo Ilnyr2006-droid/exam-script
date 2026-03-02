@@ -10,6 +10,8 @@ ROOT_PASS="root"
 HQ_SRV_IP="192.168.10.2"
 BR_SRV_IP="192.168.100.2"
 HQ_CLI_IP="192.168.20.2"
+HQ_RTR_IP="172.16.1.2"
+BR_RTR_IP="172.16.2.2"
 SSH_PORT="2026"
 
 if [ -z "$ROLE" ]; then
@@ -223,11 +225,16 @@ EOF
 
 setup_ansible_task8_br_srv() {
   install_pkg ansible sshpass
-  mkdir -p /etc/ansible/PC-INFO /etc/ansible/playbook
+  mkdir -p /etc/ansible/PC-INFO /etc/ansible/playbook /etc/ansible/router-backups
   cat > /etc/ansible/hosts <<EOF
 [hq]
 hq-srv ansible_host=${HQ_SRV_IP} ansible_user=root ansible_port=${SSH_PORT} ansible_ssh_pass=${ROOT_PASS}
 hq-cli ansible_host=${HQ_CLI_IP} ansible_user=root ansible_port=${SSH_PORT} ansible_ssh_pass=${ROOT_PASS}
+
+[routers]
+hq-rtr ansible_host=${HQ_RTR_IP} ansible_user=root ansible_port=${SSH_PORT} ansible_ssh_pass=${ROOT_PASS}
+br-rtr ansible_host=${BR_RTR_IP} ansible_user=root ansible_port=${SSH_PORT} ansible_ssh_pass=${ROOT_PASS}
+
 [all:vars]
 ansible_become=yes
 ansible_python_interpreter=/usr/bin/python3
@@ -246,6 +253,24 @@ EOF
           ip_address: {{ ansible_default_ipv4.address | default('N/A') }}
       delegate_to: localhost
       run_once: false
+EOF
+
+  cat > /etc/ansible/playbook/backup_router_configs.yml <<'EOF'
+- name: backup router running-config
+  hosts: routers
+  gather_facts: no
+  tasks:
+    - name: collect running-config
+      shell: vtysh -c 'show running-config'
+      register: running_cfg
+      changed_when: false
+
+    - name: save running-config to file on BR-SRV
+      copy:
+        dest: /etc/ansible/router-backups/{{ inventory_hostname }}-running.cfg
+        content: "{{ running_cfg.stdout }}
+"
+      delegate_to: localhost
 EOF
 }
 
