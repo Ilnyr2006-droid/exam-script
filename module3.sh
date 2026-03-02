@@ -22,6 +22,18 @@ install_pkg() {
   DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
 }
 
+run_if_needed() {
+  local title="$1"
+  local check_cmd="$2"
+  local action_cmd="$3"
+  if eval "$check_cmd"; then
+    echo ">>> SKIP: $title (already done)"
+  else
+    echo ">>> RUN: $title"
+    eval "$action_cmd"
+  fi
+}
+
 setup_import_users_br_srv() {
   mkdir -p /mnt/additional
   mount -o loop "/home/user/Загрузки/Additional.iso" /mnt/additional 2>/dev/null || true
@@ -258,26 +270,26 @@ EOF
 
 case "$ROLE" in
   br-srv)
-    setup_import_users_br_srv
-    setup_rsyslog_server_br_srv
-    setup_ansible_task8_br_srv
+    run_if_needed "BR-SRV user import" "[ -x /opt/import_users.sh ]" "setup_import_users_br_srv"
+    run_if_needed "BR-SRV rsyslog server" "systemctl is-active --quiet rsyslog && [ -f /etc/rsyslog.d/10-remote-server.conf ]" "setup_rsyslog_server_br_srv"
+    run_if_needed "BR-SRV ansible task8" "[ -f /etc/ansible/playbook/get_hostname_address.yml ] && [ -f /etc/ansible/hosts ]" "setup_ansible_task8_br_srv"
     ;;
   hq-cli)
-    setup_hq_cli_pam
+    run_if_needed "HQ-CLI PAM mkhomedir" "grep -q 'pam_mkhomedir.so' /etc/pam.d/common-session" "setup_hq_cli_pam"
     ;;
   hq-rtr)
-    setup_ipsec "172.16.1.2" "hq-rtr.au-team.irpo" "172.16.2.2" "br-rtr.au-team.irpo"
-    setup_firewall_router "$HQ_SRV_IP" "ens33"
-    setup_rsyslog_client
+    run_if_needed "HQ-RTR IPsec" "grep -q '^conn gre-encrypt' /etc/ipsec.conf 2>/dev/null && systemctl is-active --quiet strongswan-starter" "setup_ipsec '172.16.1.2' 'hq-rtr.au-team.irpo' '172.16.2.2' 'br-rtr.au-team.irpo'"
+    run_if_needed "HQ-RTR firewall" "[ -x /etc/start_iptables.sh ] && grep -q 'DEST="${HQ_SRV_IP}"' /etc/start_iptables.sh" "setup_firewall_router '$HQ_SRV_IP' 'ens33'"
+    run_if_needed "HQ-RTR rsyslog client" "systemctl is-active --quiet rsyslog && grep -q '^\*\.\* @192.168.100.2:514' /etc/rsyslog.d/90-remote-forward.conf 2>/dev/null" "setup_rsyslog_client"
     ;;
   br-rtr)
-    setup_ipsec "172.16.2.2" "br-rtr.au-team.irpo" "172.16.1.2" "hq-rtr.au-team.irpo"
-    setup_firewall_router "$BR_SRV_IP" "ens33"
-    setup_rsyslog_client
+    run_if_needed "BR-RTR IPsec" "grep -q '^conn gre-encrypt' /etc/ipsec.conf 2>/dev/null && systemctl is-active --quiet strongswan-starter" "setup_ipsec '172.16.2.2' 'br-rtr.au-team.irpo' '172.16.1.2' 'hq-rtr.au-team.irpo'"
+    run_if_needed "BR-RTR firewall" "[ -x /etc/start_iptables.sh ] && grep -q 'DEST="${BR_SRV_IP}"' /etc/start_iptables.sh" "setup_firewall_router '$BR_SRV_IP' 'ens33'"
+    run_if_needed "BR-RTR rsyslog client" "systemctl is-active --quiet rsyslog && grep -q '^\*\.\* @192.168.100.2:514' /etc/rsyslog.d/90-remote-forward.conf 2>/dev/null" "setup_rsyslog_client"
     ;;
   hq-srv)
-    setup_rsyslog_client
-    setup_fail2ban_hq_srv
+    run_if_needed "HQ-SRV rsyslog client" "systemctl is-active --quiet rsyslog && grep -q '^\*\.\* @192.168.100.2:514' /etc/rsyslog.d/90-remote-forward.conf 2>/dev/null" "setup_rsyslog_client"
+    run_if_needed "HQ-SRV fail2ban" "systemctl is-active --quiet fail2ban && [ -f /etc/fail2ban/jail.local ] && grep -q '^port = 2026' /etc/fail2ban/jail.local" "setup_fail2ban_hq_srv"
     ;;
   *)
     echo "Unknown role: $ROLE"
