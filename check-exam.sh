@@ -173,8 +173,8 @@ main() {
   run_remote "$HQ_CLI_IP" "realm list 2>/dev/null | grep -qi 'au-team.irpo'"
   record_check "7" "HQ-CLI присоединен к домену" "realm list" "$?"
 
-  run_remote "$HQ_CLI_IP" "mount | grep -q ' /mnt/nfs '"
-  record_check "7" "NFS на HQ-CLI смонтирован в /mnt/nfs" "mount" "$?"
+  run_remote "$HQ_CLI_IP" "mountpoint -q /mnt/nfs"
+  record_check "7" "NFS на HQ-CLI смонтирован в /mnt/nfs" "mountpoint" "$?"
 
   run_remote "$BR_SRV_IP" "ansible all -m ping -o >/tmp/ansible_ping.out 2>&1 && ! grep -q 'UNREACHABLE' /tmp/ansible_ping.out"
   record_check "8" "Ansible ping с BR-SRV успешен для всех узлов" "ansible all -m ping" "$?"
