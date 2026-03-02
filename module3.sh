@@ -264,6 +264,78 @@ setup_cups_hq_cli() {
   lpadmin -p Virtual_PDF_Printer -E -v ipp://hq-srv.au-team.irpo/printers/CUPS-PDF -m everywhere
 }
 
+
+setup_restic_hq_cli() {
+  install_pkg restic openssh-server
+  /usr/sbin/useradd -m -s /bin/bash backupuser 2>/dev/null || true
+  echo "backupuser:$PASS_ADM" | /usr/sbin/chpasswd || true
+  mkdir -p /backup/etc /backup/webdb
+  chown -R backupuser:backupuser /backup
+  chmod 750 /backup /backup/etc /backup/webdb
+
+  if grep -q '^AllowUsers' /etc/ssh/sshd_config 2>/dev/null; then
+    grep -q '^AllowUsers .*backupuser' /etc/ssh/sshd_config ||       sed -i 's/^AllowUsers .*/& backupuser/' /etc/ssh/sshd_config
+  else
+    echo 'AllowUsers root sshuser backupuser' >> /etc/ssh/sshd_config
+  fi
+  systemctl restart ssh || true
+}
+
+setup_restic_hq_srv() {
+  install_pkg restic sshpass mariadb-client
+  /usr/sbin/useradd -m -s /bin/bash irpoadmin 2>/dev/null || true
+  echo "irpoadmin:$PASS_ADM" | /usr/sbin/chpasswd || true
+  /usr/sbin/usermod -aG sudo irpoadmin || true
+  grep -q '^irpoadmin ALL=(ALL:ALL) NOPASSWD: ALL$' /etc/sudoers ||     echo 'irpoadmin ALL=(ALL:ALL) NOPASSWD: ALL' >> /etc/sudoers
+
+  sudo -u irpoadmin mkdir -p /home/irpoadmin/.ssh
+  [ -f /home/irpoadmin/.ssh/id_rsa ] ||     sudo -u irpoadmin ssh-keygen -t rsa -b 4096 -f /home/irpoadmin/.ssh/id_rsa -N ""
+
+  sudo -u irpoadmin sshpass -p "$PASS_ADM" ssh-copy-id -p "$SSH_PORT" -o StrictHostKeyChecking=no backupuser@hq-cli.au-team.irpo || true
+
+  cat > /home/irpoadmin/.ssh/config <<'EOF'
+Host hq-cli.au-team.irpo
+    HostName hq-cli.au-team.irpo
+    Port 2026
+    User backupuser
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+EOF
+  chown irpoadmin:irpoadmin /home/irpoadmin/.ssh/config
+  chmod 600 /home/irpoadmin/.ssh/config
+
+  sudo -u irpoadmin RESTIC_PASSWORD="$PASS_ADM" restic snapshots --repo "sftp:backupuser@hq-cli.au-team.irpo:/backup/etc" >/dev/null 2>&1 ||     sudo -u irpoadmin RESTIC_PASSWORD="$PASS_ADM" restic init --repo "sftp:backupuser@hq-cli.au-team.irpo:/backup/etc"
+
+  sudo -u irpoadmin RESTIC_PASSWORD="$PASS_ADM" restic snapshots --repo "sftp:backupuser@hq-cli.au-team.irpo:/backup/webdb" >/dev/null 2>&1 ||     sudo -u irpoadmin RESTIC_PASSWORD="$PASS_ADM" restic init --repo "sftp:backupuser@hq-cli.au-team.irpo:/backup/webdb"
+
+  setcap 'cap_dac_read_search+ep' "$(command -v restic)" || true
+}
+
+setup_restic_scripts_hq_srv() {
+  cat > /home/irpoadmin/backup_etc.sh <<'EOF'
+#!/bin/bash
+export RESTIC_PASSWORD="P@ssw0rd"
+restic backup --repo "sftp:backupuser@hq-cli.au-team.irpo:/backup/etc" /etc
+EOF
+
+  cat > /home/irpoadmin/backup_webdb.sh <<'EOF'
+#!/bin/bash
+DUMP_FILE="/tmp/webdb_$(date +%Y%m%d_%H%M%S).sql"
+mysqldump -u web -pP@ssw0rd webdb > "$DUMP_FILE"
+export RESTIC_PASSWORD="P@ssw0rd"
+restic backup --repo "sftp:backupuser@hq-cli.au-team.irpo:/backup/webdb" "$DUMP_FILE"
+rm -f "$DUMP_FILE"
+EOF
+
+  chown irpoadmin:irpoadmin /home/irpoadmin/backup_etc.sh /home/irpoadmin/backup_webdb.sh
+  chmod +x /home/irpoadmin/backup_etc.sh /home/irpoadmin/backup_webdb.sh
+}
+
+run_restic_backups_hq_srv() {
+  sudo -u irpoadmin /home/irpoadmin/backup_etc.sh || true
+  sudo -u irpoadmin /home/irpoadmin/backup_webdb.sh || true
+}
+
 setup_fail2ban_hq_srv() {
   install_pkg fail2ban
   cat > /etc/fail2ban/jail.local <<'EOF'
@@ -298,6 +370,7 @@ case "$ROLE" in
   hq-cli)
     run_if_needed "HQ-CLI PAM mkhomedir" "grep -q 'pam_mkhomedir.so' /etc/pam.d/common-session" "setup_hq_cli_pam"
     run_if_needed "HQ-CLI CUPS printer" "lpstat -v 2>/dev/null | grep -q 'Virtual_PDF_Printer'" "setup_cups_hq_cli"
+    run_if_needed "HQ-CLI Restic storage" "id backupuser >/dev/null 2>&1 && [ -d /backup/etc ] && [ -d /backup/webdb ]" "setup_restic_hq_cli"
     ;;
   hq-rtr)
     run_if_needed "HQ-RTR IPsec" "grep -q '^conn gre-encrypt' /etc/ipsec.conf 2>/dev/null && systemctl is-active --quiet strongswan-starter" "setup_ipsec '172.16.1.2' 'hq-rtr.au-team.irpo' '172.16.2.2' 'br-rtr.au-team.irpo'"
@@ -311,6 +384,9 @@ case "$ROLE" in
     ;;
   hq-srv)
     run_if_needed "HQ-SRV CUPS server" "systemctl is-active --quiet cups && lpstat -v 2>/dev/null | grep -q 'CUPS-PDF'" "setup_cups_hq_srv"
+    run_if_needed "HQ-SRV Restic base" "id irpoadmin >/dev/null 2>&1 && [ -f /home/irpoadmin/.ssh/config ]" "setup_restic_hq_srv"
+    run_if_needed "HQ-SRV Restic scripts" "[ -x /home/irpoadmin/backup_etc.sh ] && [ -x /home/irpoadmin/backup_webdb.sh ]" "setup_restic_scripts_hq_srv"
+    run_if_needed "HQ-SRV Restic snapshots" "sudo -u irpoadmin RESTIC_PASSWORD='P@ssw0rd' restic snapshots --repo 'sftp:backupuser@hq-cli.au-team.irpo:/backup/etc' >/dev/null 2>&1 && sudo -u irpoadmin RESTIC_PASSWORD='P@ssw0rd' restic snapshots --repo 'sftp:backupuser@hq-cli.au-team.irpo:/backup/webdb' >/dev/null 2>&1" "run_restic_backups_hq_srv"
     run_if_needed "HQ-SRV rsyslog client" "systemctl is-active --quiet rsyslog && grep -q '^\*\.\* @192.168.100.2:514' /etc/rsyslog.d/90-remote-forward.conf 2>/dev/null" "setup_rsyslog_client"
     run_if_needed "HQ-SRV fail2ban" "systemctl is-active --quiet fail2ban && [ -f /etc/fail2ban/jail.local ] && grep -q '^port = 2026' /etc/fail2ban/jail.local" "setup_fail2ban_hq_srv"
     ;;
