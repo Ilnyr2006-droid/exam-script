@@ -269,14 +269,19 @@ setup_restic_hq_cli() {
   install_pkg restic openssh-server
   /usr/sbin/useradd -m -s /bin/bash backupuser 2>/dev/null || true
   echo "backupuser:$PASS_ADM" | /usr/sbin/chpasswd || true
-  mkdir -p /backup/etc /backup/webdb
-  chown -R backupuser:backupuser /backup
+
+  mkdir -p /home/backupuser/.ssh /backup/etc /backup/webdb
+  chown -R backupuser:backupuser /home/backupuser/.ssh /backup
+  chmod 700 /home/backupuser/.ssh
   chmod 750 /backup /backup/etc /backup/webdb
 
-  if grep -q '^AllowUsers' /etc/ssh/sshd_config 2>/dev/null; then
-    grep -q '^AllowUsers .*backupuser' /etc/ssh/sshd_config ||       sed -i 's/^AllowUsers .*/& backupuser/' /etc/ssh/sshd_config
-  else
-    echo 'AllowUsers root sshuser backupuser' >> /etc/ssh/sshd_config
+  if [ -f /etc/ssh/sshd_config ]; then
+    grep -q '^PasswordAuthentication yes' /etc/ssh/sshd_config || echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
+    if grep -q '^AllowUsers' /etc/ssh/sshd_config; then
+      grep -q '^AllowUsers .*backupuser' /etc/ssh/sshd_config || sed -i 's/^AllowUsers .*/& backupuser/' /etc/ssh/sshd_config
+    else
+      echo 'AllowUsers root sshuser backupuser' >> /etc/ssh/sshd_config
+    fi
   fi
   systemctl restart ssh || true
 }
@@ -291,18 +296,24 @@ setup_restic_hq_srv() {
   sudo -u irpoadmin mkdir -p /home/irpoadmin/.ssh
   [ -f /home/irpoadmin/.ssh/id_rsa ] ||     sudo -u irpoadmin ssh-keygen -t rsa -b 4096 -f /home/irpoadmin/.ssh/id_rsa -N ""
 
-  sudo -u irpoadmin sshpass -p "$PASS_ADM" ssh-copy-id -p "$SSH_PORT" -o StrictHostKeyChecking=no backupuser@hq-cli.au-team.irpo || true
-
   cat > /home/irpoadmin/.ssh/config <<'EOF'
 Host hq-cli.au-team.irpo
     HostName hq-cli.au-team.irpo
     Port 2026
     User backupuser
+    IdentitiesOnly yes
+    IdentityFile /home/irpoadmin/.ssh/id_rsa
+    PreferredAuthentications password,publickey
+    PubkeyAuthentication yes
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
 EOF
-  chown irpoadmin:irpoadmin /home/irpoadmin/.ssh/config
-  chmod 600 /home/irpoadmin/.ssh/config
+  chown -R irpoadmin:irpoadmin /home/irpoadmin/.ssh
+  chmod 700 /home/irpoadmin/.ssh
+  chmod 600 /home/irpoadmin/.ssh/config /home/irpoadmin/.ssh/id_rsa
+  chmod 644 /home/irpoadmin/.ssh/id_rsa.pub
+
+  sudo -u irpoadmin sshpass -p "$PASS_ADM" ssh-copy-id     -p "$SSH_PORT"     -o StrictHostKeyChecking=no     -o UserKnownHostsFile=/dev/null     -o IdentitiesOnly=yes     -o PreferredAuthentications=password     -o PubkeyAuthentication=no     backupuser@hq-cli.au-team.irpo || true
 
   sudo -u irpoadmin RESTIC_PASSWORD="$PASS_ADM" restic snapshots --repo "sftp:backupuser@hq-cli.au-team.irpo:/backup/etc" >/dev/null 2>&1 ||     sudo -u irpoadmin RESTIC_PASSWORD="$PASS_ADM" restic init --repo "sftp:backupuser@hq-cli.au-team.irpo:/backup/etc"
 
