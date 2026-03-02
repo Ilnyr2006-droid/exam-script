@@ -2,6 +2,7 @@
 # Orchestrator: run module2 tasks from ISP via SSH (root)
 
 set -euo pipefail
+export PATH="$PATH:/usr/sbin:/sbin:/usr/bin:/bin"
 
 SSH_PORT=2026
 ROOT_PASS="root"
@@ -518,7 +519,7 @@ server {
 CONF
 ln -sf /etc/nginx/sites-available/reverse_proxy.conf /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
-nginx -t
+/usr/sbin/nginx -t
 systemctl restart nginx
 LOCAL
 fi
