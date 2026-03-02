@@ -183,6 +183,12 @@ prompt_var GRE_BR_IP "10.0.0.2" "GRE IP on BR-RTR (no CIDR)"
 prompt_var GRE_NETMASK "255.255.255.252" "GRE netmask"
 prompt_var DHCP_RANGE_START "192.168.20.2" "DHCP range start (HQ-CLI)"
 prompt_var DHCP_RANGE_END "192.168.20.14" "DHCP range end (HQ-CLI)"
+prompt_var DHCP_RES1_HOST "hq-srv" "DHCP reservation #1 host name"
+prompt_var DHCP_RES1_MAC "" "DHCP reservation #1 MAC (optional)"
+prompt_var DHCP_RES1_IP "" "DHCP reservation #1 IP (optional)"
+prompt_var DHCP_RES2_HOST "br-srv" "DHCP reservation #2 host name"
+prompt_var DHCP_RES2_MAC "" "DHCP reservation #2 MAC (optional)"
+prompt_var DHCP_RES2_IP "" "DHCP reservation #2 IP (optional)"
 
 # Подсказка: шлюзы берем как IP ISP или .1 внутри подсети
 HQ_SRV_GW="${HQ_RTR_VLAN100_IP_CIDR%%/*}"
@@ -554,6 +560,22 @@ subnet $HQ_CLI_NET_ADDR netmask $HQ_CLI_NETMASK {
     option domain-name-servers $HQ_SRV_IP;
 }
 EOF
+        if [ -n "$DHCP_RES1_MAC" ] && [ -n "$DHCP_RES1_IP" ]; then
+            cat <<EOF >> /etc/dhcp/dhcpd.conf
+host $DHCP_RES1_HOST {
+    hardware ethernet $DHCP_RES1_MAC;
+    fixed-address $DHCP_RES1_IP;
+}
+EOF
+        fi
+        if [ -n "$DHCP_RES2_MAC" ] && [ -n "$DHCP_RES2_IP" ]; then
+            cat <<EOF >> /etc/dhcp/dhcpd.conf
+host $DHCP_RES2_HOST {
+    hardware ethernet $DHCP_RES2_MAC;
+    fixed-address $DHCP_RES2_IP;
+}
+EOF
+        fi
         systemctl restart isc-dhcp-server
 
         install_pkg frr
