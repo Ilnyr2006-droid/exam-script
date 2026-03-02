@@ -249,6 +249,21 @@ EOF
 EOF
 }
 
+
+setup_cups_hq_srv() {
+  install_pkg cups cups-pdf printer-driver-cups-pdf cups-client
+  /usr/sbin/usermod -aG lpadmin sshuser || true
+  /usr/sbin/cupsctl --remote-admin --remote-any --share-printers
+  systemctl enable cups
+  systemctl restart cups
+}
+
+setup_cups_hq_cli() {
+  install_pkg cups-client
+  lpadmin -x Virtual_PDF_Printer 2>/dev/null || true
+  lpadmin -p Virtual_PDF_Printer -E -v ipp://hq-srv.au-team.irpo/printers/CUPS-PDF -m everywhere
+}
+
 setup_fail2ban_hq_srv() {
   install_pkg fail2ban
   cat > /etc/fail2ban/jail.local <<'EOF'
@@ -282,6 +297,7 @@ case "$ROLE" in
     ;;
   hq-cli)
     run_if_needed "HQ-CLI PAM mkhomedir" "grep -q 'pam_mkhomedir.so' /etc/pam.d/common-session" "setup_hq_cli_pam"
+    run_if_needed "HQ-CLI CUPS printer" "lpstat -v 2>/dev/null | grep -q 'Virtual_PDF_Printer'" "setup_cups_hq_cli"
     ;;
   hq-rtr)
     run_if_needed "HQ-RTR IPsec" "grep -q '^conn gre-encrypt' /etc/ipsec.conf 2>/dev/null && systemctl is-active --quiet strongswan-starter" "setup_ipsec '172.16.1.2' 'hq-rtr.au-team.irpo' '172.16.2.2' 'br-rtr.au-team.irpo'"
@@ -294,6 +310,7 @@ case "$ROLE" in
     run_if_needed "BR-RTR rsyslog client" "systemctl is-active --quiet rsyslog && grep -q '^\*\.\* @192.168.100.2:514' /etc/rsyslog.d/90-remote-forward.conf 2>/dev/null" "setup_rsyslog_client"
     ;;
   hq-srv)
+    run_if_needed "HQ-SRV CUPS server" "systemctl is-active --quiet cups && lpstat -v 2>/dev/null | grep -q 'CUPS-PDF'" "setup_cups_hq_srv"
     run_if_needed "HQ-SRV rsyslog client" "systemctl is-active --quiet rsyslog && grep -q '^\*\.\* @192.168.100.2:514' /etc/rsyslog.d/90-remote-forward.conf 2>/dev/null" "setup_rsyslog_client"
     run_if_needed "HQ-SRV fail2ban" "systemctl is-active --quiet fail2ban && [ -f /etc/fail2ban/jail.local ] && grep -q '^port = 2026' /etc/fail2ban/jail.local" "setup_fail2ban_hq_srv"
     ;;
@@ -304,6 +321,11 @@ case "$ROLE" in
 esac
 
 echo "=== module3 done for role: $ROLE ==="
+if [ "$ROLE" = "hq-srv" ]; then
+  echo "CUPS admin: https://hq-srv.au-team.irpo:631/admin"
+  echo "Login: sshuser"
+  echo "Password: P@ssw0rd"
+fi
 
 # Clean command history (best-effort).
 history -c 2>/dev/null || true
