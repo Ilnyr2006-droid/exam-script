@@ -227,6 +227,15 @@ main() {
   run_remote "$HQ_SRV_IP" "systemctl is-active fail2ban >/dev/null 2>&1 && fail2ban-client status sshd >/dev/null 2>&1"
   record_check "9" "Fail2ban активен и jail sshd работает" "fail2ban" "$?"
 
+  run_remote "$HQ_CLI_IP" "id backupuser >/dev/null 2>&1 && [ -d /backup/etc ] && [ -d /backup/webdb ]"
+  record_check "10" "Restic storage подготовлен на HQ-CLI" "backupuser,/backup" "$?"
+
+  run_remote "$HQ_SRV_IP" "id irpoadmin >/dev/null 2>&1 && [ -x /home/irpoadmin/backup_etc.sh ] && [ -x /home/irpoadmin/backup_webdb.sh ]"
+  record_check "10" "Restic скрипты backup созданы на HQ-SRV" "backup_etc.sh,backup_webdb.sh" "$?"
+
+  run_remote "$HQ_SRV_IP" "sudo -u irpoadmin RESTIC_PASSWORD='P@ssw0rd' restic snapshots --repo 'sftp:backupuser@hq-cli.au-team.irpo:/backup/etc' >/dev/null 2>&1 && sudo -u irpoadmin RESTIC_PASSWORD='P@ssw0rd' restic snapshots --repo 'sftp:backupuser@hq-cli.au-team.irpo:/backup/webdb' >/dev/null 2>&1"
+  record_check "10" "Restic репозитории доступны и snapshots читаются" "restic snapshots" "$?"
+
   print_summary
 }
 
