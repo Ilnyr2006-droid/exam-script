@@ -428,6 +428,12 @@ check_ssh() {
     root@"$host" "echo ok" >/dev/null 2>&1
 }
 
+remote_ok() {
+  local host="$1"
+  local cmd="$2"
+  sshpass -p "$ROOT_PASS" ssh -p "$SSH_PORT"     -o ConnectTimeout=5     -o StrictHostKeyChecking=no     -o UserKnownHostsFile=/dev/null     -o IdentitiesOnly=yes     -o PreferredAuthentications=password     -o PubkeyAuthentication=no     root@"$host" "bash -lc "$cmd"" >/dev/null 2>&1
+}
+
 resolve_hq_cli_ip() {
   # Try default first, then DHCP fallback candidates.
   for candidate in "$HQ_CLI_IP" 192.168.20.3 192.168.20.4; do
@@ -463,8 +469,14 @@ done
 resolve_hq_cli_ip || exit 1
 
 echo ">>> STEP 1: ISP (NTP + Proxy)"
-# запуск локально на ISP
-ROLE="isp" HQ_SRV_IP="$HQ_SRV_IP" BR_SRV_IP="$BR_SRV_IP" bash -s <<'LOCAL'
+if systemctl is-active --quiet chrony \
+  && systemctl is-active --quiet nginx \
+  && grep -q 'server_name web.au-team.irpo;' /etc/nginx/sites-available/reverse_proxy.conf 2>/dev/null \
+  && grep -q 'server_name docker.au-team.irpo;' /etc/nginx/sites-available/reverse_proxy.conf 2>/dev/null; then
+  echo ">>> STEP 1 SKIP: already configured"
+else
+  # запуск локально на ISP
+  ROLE="isp" HQ_SRV_IP="$HQ_SRV_IP" BR_SRV_IP="$BR_SRV_IP" bash -s <<'LOCAL'
 set -e
 install_pkg() { DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"; }
 
@@ -506,33 +518,49 @@ server {
 CONF
 ln -sf /etc/nginx/sites-available/reverse_proxy.conf /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
-systemctl reload nginx
+nginx -t
+systemctl restart nginx
 LOCAL
+fi
 
 echo ">>> STEP 2: HQ-RTR & BR-RTR (NAT + Chrony)"
-ssh_run "$HQ_RTR_IP" "hq-rtr"
-ssh_run "$BR_RTR_IP" "br-rtr"
+if remote_ok "$HQ_RTR_IP" "systemctl is-active --quiet chrony && ( /usr/sbin/iptables -t nat -S 2>/dev/null || iptables -t nat -S 2>/dev/null ) | grep -q -- '--to-destination ${HQ_SRV_IP}:80'"; then
+  echo ">>> STEP 2 SKIP: hq-rtr already configured"
+else
+  ssh_run "$HQ_RTR_IP" "hq-rtr"
+fi
+if remote_ok "$BR_RTR_IP" "systemctl is-active --quiet chrony && ( /usr/sbin/iptables -t nat -S 2>/dev/null || iptables -t nat -S 2>/dev/null ) | grep -q -- '--to-destination ${BR_SRV_IP}:80'"; then
+  echo ">>> STEP 2 SKIP: br-rtr already configured"
+else
+  ssh_run "$BR_RTR_IP" "br-rtr"
+fi
 
 echo ">>> STEP 3: HQ-SRV (RAID + Web + NFS) — ISO required"
-ssh_run "$HQ_SRV_IP" "hq-srv"
+if remote_ok "$HQ_SRV_IP" "systemctl is-active --quiet chrony && mountpoint -q /raid && exportfs -v 2>/dev/null | grep -q '/raid/nfs' && ss -lnt | grep -q ':80\b'"; then
+  echo ">>> STEP 3 SKIP: hq-srv already configured"
+else
+  ssh_run "$HQ_SRV_IP" "hq-srv"
+fi
 curl -fsSI "http://${HQ_SRV_IP}:80" >/dev/null || {
   echo "ERROR: ISP cannot reach HQ-SRV HTTP on ${HQ_SRV_IP}:80 after STEP 3"
   exit 1
 }
 
 echo ">>> STEP 4: BR-SRV (Samba AD + Ansible + Docker) — ISO required"
-# временно ставим 8.8.8.8, если нужно скачать пакеты
-sshpass -p "$ROOT_PASS" ssh -p "$SSH_PORT" \
-  -o StrictHostKeyChecking=no \
-  -o UserKnownHostsFile=/dev/null \
-  -o IdentitiesOnly=yes \
-  -o PreferredAuthentications=password \
-  -o PubkeyAuthentication=no \
-  root@"$BR_SRV_IP" "echo 'nameserver 8.8.8.8' > /etc/resolv.conf" || true
-ssh_run "$BR_SRV_IP" "br-srv"
+if remote_ok "$BR_SRV_IP" "systemctl is-active --quiet chrony && systemctl is-active --quiet samba-ad-dc && docker ps --format '{{.Names}}' | grep -qx testapp"; then
+  echo ">>> STEP 4 SKIP: br-srv already configured"
+else
+  # временно ставим 8.8.8.8, если нужно скачать пакеты
+  sshpass -p "$ROOT_PASS" ssh -p "$SSH_PORT"     -o StrictHostKeyChecking=no     -o UserKnownHostsFile=/dev/null     -o IdentitiesOnly=yes     -o PreferredAuthentications=password     -o PubkeyAuthentication=no     root@"$BR_SRV_IP" "echo 'nameserver 8.8.8.8' > /etc/resolv.conf" || true
+  ssh_run "$BR_SRV_IP" "br-srv"
+fi
 
 echo ">>> STEP 5: HQ-CLI (Domain join + NFS)"
-ssh_run "$HQ_CLI_IP" "hq-cli"
+if remote_ok "$HQ_CLI_IP" "systemctl is-active --quiet chrony && grep -q '${HQ_SRV_IP}:/raid/nfs /mnt/nfs nfs' /etc/fstab && realm list 2>/dev/null | grep -qi 'realm-name: au-team.irpo'"; then
+  echo ">>> STEP 5 SKIP: hq-cli already configured"
+else
+  ssh_run "$HQ_CLI_IP" "hq-cli"
+fi
 
 echo ">>> Ansible ping (from BR-SRV)"
 sshpass -p "$ROOT_PASS" ssh -p "$SSH_PORT" \
