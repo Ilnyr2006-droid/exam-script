@@ -235,6 +235,10 @@ hq-cli ansible_host=${HQ_CLI_IP} ansible_user=root ansible_port=${SSH_PORT} ansi
 hq-rtr ansible_host=${HQ_RTR_IP} ansible_user=root ansible_port=${SSH_PORT} ansible_ssh_pass=${ROOT_PASS}
 br-rtr ansible_host=${BR_RTR_IP} ansible_user=root ansible_port=${SSH_PORT} ansible_ssh_pass=${ROOT_PASS}
 
+[br]
+br-srv ansible_connection=local ansible_user=root
+br-rtr ansible_host=${BR_RTR_IP} ansible_user=root ansible_port=${SSH_PORT} ansible_ssh_pass=${ROOT_PASS}
+
 [all:vars]
 ansible_become=yes
 ansible_python_interpreter=/usr/bin/python3
