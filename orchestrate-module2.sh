@@ -12,11 +12,54 @@ ISO_MOUNT="/media/cdrom0"
 DOMAIN="au-team.irpo"
 
 # Default IPs (per your layout)
-HQ_SRV_IP="192.168.10.2"
-BR_SRV_IP="192.168.100.2"
-HQ_RTR_IP="172.16.1.2"
-BR_RTR_IP="172.16.2.2"
-HQ_CLI_IP="192.168.20.2"
+DEF_HQ_SRV_IP="192.168.10.2"
+DEF_BR_SRV_IP="192.168.100.2"
+DEF_HQ_RTR_IP="172.16.1.2"
+DEF_BR_RTR_IP="172.16.2.2"
+DEF_HQ_CLI_IP="192.168.20.2"
+DEF_HQ_CLI_NET="192.168.20.0/28"
+
+# If CLIENT_KEY is provided, generate deterministic unique addressing
+if [ -n "${CLIENT_KEY:-}" ]; then
+  if ! command -v sha256sum >/dev/null 2>&1; then
+    echo "ERROR: sha256sum is required for CLIENT_KEY mode"
+    exit 1
+  fi
+
+  SEED_HEX="$(echo -n "$CLIENT_KEY" | sha256sum | awk '{print $1}' | cut -c1-8)"
+  SEED=$((16#$SEED_HEX))
+
+  BASE_A=$(( (SEED % 200) + 20 ))
+  BASE_B=$(( ((SEED / 257) % 200) + 20 ))
+  WAN_C=$(( ((SEED / 65537) % 200) + 20 ))
+
+  next_octet() {
+    local base="$1" off="$2"
+    echo $(( ((base - 20 + off) % 200) + 20 ))
+  }
+
+  O1="$(next_octet "$BASE_B" 0)"
+  O2="$(next_octet "$BASE_B" 1)"
+  O4="$(next_octet "$BASE_B" 3)"
+
+  DEF_HQ_SRV_IP="10.${BASE_A}.${O1}.2"
+  DEF_HQ_CLI_IP="10.${BASE_A}.${O2}.2"
+  DEF_BR_SRV_IP="10.${BASE_A}.${O4}.2"
+  DEF_HQ_CLI_NET="10.${BASE_A}.${O2}.0/28"
+
+  DEF_HQ_RTR_IP="172.16.${WAN_C}.2"
+  WAN_D="$(next_octet "$WAN_C" 37)"
+  DEF_BR_RTR_IP="172.16.${WAN_D}.2"
+
+  echo ">>> CLIENT_KEY mode enabled: $CLIENT_KEY"
+fi
+
+HQ_SRV_IP="$DEF_HQ_SRV_IP"
+BR_SRV_IP="$DEF_BR_SRV_IP"
+HQ_RTR_IP="$DEF_HQ_RTR_IP"
+BR_RTR_IP="$DEF_BR_RTR_IP"
+HQ_CLI_IP="$DEF_HQ_CLI_IP"
+HQ_CLI_NET="$DEF_HQ_CLI_NET"
 
 prompt_ip() {
   local label="$1"
@@ -40,7 +83,7 @@ echo "Используем IP: HQ-RTR=$HQ_RTR_IP BR-RTR=$BR_RTR_IP HQ-SRV=$HQ_SR
 
 echo ">>> Pre-flight: sshpass + route to HQ-CLI"
 apt-get install -y sshpass curl
-/sbin/ip route add 192.168.20.0/28 via "$HQ_RTR_IP" || true
+/sbin/ip route add "$HQ_CLI_NET" via "$HQ_RTR_IP" || true
 
 ssh_run() {
   local host="$1"
@@ -54,7 +97,7 @@ ssh_run() {
     -o IdentitiesOnly=yes \
     -o PreferredAuthentications=password \
     -o PubkeyAuthentication=no \
-    root@"$host" "ROLE='$role' PASS_ADM='$PASS_ADM' ISO_FILE='$ISO_FILE' ISO_MOUNT='$ISO_MOUNT' DOMAIN='$DOMAIN' HQ_SRV_IP='$HQ_SRV_IP' BR_SRV_IP='$BR_SRV_IP' HQ_RTR_IP='$HQ_RTR_IP' BR_RTR_IP='$BR_RTR_IP' HQ_CLI_IP='$HQ_CLI_IP' bash -s" <<'REMOTE'
+    root@"$host" "ROLE='$role' PASS_ADM='$PASS_ADM' ISO_FILE='$ISO_FILE' ISO_MOUNT='$ISO_MOUNT' DOMAIN='$DOMAIN' HQ_SRV_IP='$HQ_SRV_IP' BR_SRV_IP='$BR_SRV_IP' HQ_RTR_IP='$HQ_RTR_IP' BR_RTR_IP='$BR_RTR_IP' HQ_CLI_IP='$HQ_CLI_IP' HQ_CLI_NET='$HQ_CLI_NET' bash -s" <<'REMOTE'
 set -e
 install_pkg() { DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"; }
 prepare_iso_mount() {
@@ -286,7 +329,7 @@ CONF
     install_pkg nfs-kernel-server
     mkdir -p /raid/nfs
     chmod 777 /raid/nfs
-    echo "/raid/nfs 192.168.20.0/28(rw,sync,no_subtree_check)" >> /etc/exports
+    echo "/raid/nfs ${HQ_CLI_NET}(rw,sync,no_subtree_check)" >> /etc/exports
     exportfs -ra
     systemctl enable --now nfs-kernel-server
 
@@ -437,7 +480,8 @@ remote_ok() {
 
 resolve_hq_cli_ip() {
   # Try default first, then DHCP fallback candidates.
-  for candidate in "$HQ_CLI_IP" 192.168.20.3 192.168.20.4; do
+  HQ_CLI_NET_BASE="${HQ_CLI_IP%.*}"
+  for candidate in "$HQ_CLI_IP" "${HQ_CLI_NET_BASE}.3" "${HQ_CLI_NET_BASE}.4"; do
     [ -z "$candidate" ] && continue
     echo ">>> Проверка SSH: hq-cli ($candidate)"
     if check_ssh "$candidate"; then
@@ -446,7 +490,7 @@ resolve_hq_cli_ip() {
       return 0
     fi
   done
-  echo "!!! SSH FAIL: hq-cli (пробовали: 192.168.20.2, 192.168.20.3, 192.168.20.4)"
+  echo "!!! SSH FAIL: hq-cli (пробовали: ${HQ_CLI_IP}, ${HQ_CLI_NET_BASE}.3, ${HQ_CLI_NET_BASE}.4)"
   return 1
 }
 
