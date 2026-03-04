@@ -476,7 +476,7 @@ case "$ROLE" in
   hq-cli)
     run_if_needed "HQ-CLI PAM mkhomedir" "grep -q 'pam_mkhomedir.so' /etc/pam.d/common-session" "setup_hq_cli_pam"
     run_if_needed "HQ-CLI CUPS printer" "lpstat -v 2>/dev/null | grep -q 'Virtual_PDF_Printer'" "setup_cups_hq_cli"
-    run_if_needed "HQ-CLI Restic storage" "id backupuser >/dev/null 2>&1 && [ -d /backup/etc ] && [ -d /backup/webdb ] && grep -q "^Port 2026$" /etc/ssh/sshd_config && grep -q "^PasswordAuthentication yes$" /etc/ssh/sshd_config && grep -q "^PubkeyAuthentication yes$" /etc/ssh/sshd_config && ( ! grep -q "^AllowUsers" /etc/ssh/sshd_config || grep -q "^AllowUsers .*backupuser" /etc/ssh/sshd_config )" "setup_restic_hq_cli"
+    run_if_needed "HQ-CLI Restic storage" "id backupuser >/dev/null 2>&1 && [ -d /backup/etc ] && [ -d /backup/webdb ] && grep -q '^Port 2026$' /etc/ssh/sshd_config && grep -q '^PasswordAuthentication yes$' /etc/ssh/sshd_config && grep -q '^PubkeyAuthentication yes$' /etc/ssh/sshd_config && ( ! grep -q '^AllowUsers' /etc/ssh/sshd_config || grep -q '^AllowUsers .*backupuser' /etc/ssh/sshd_config )" "setup_restic_hq_cli"
     ;;
   hq-rtr)
     run_if_needed "HQ-RTR IPsec" "grep -q '^conn gre-encrypt' /etc/ipsec.conf 2>/dev/null && systemctl is-active --quiet strongswan-starter" "setup_ipsec '$HQ_RTR_IP' 'hq-rtr.au-team.irpo' '$BR_RTR_IP' 'br-rtr.au-team.irpo'"
