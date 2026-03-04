@@ -581,7 +581,7 @@ else
 fi
 
 echo ">>> STEP 3: HQ-SRV (RAID + Web + NFS) — ISO required"
-if remote_ok "$HQ_SRV_IP" "systemctl is-active --quiet chrony && mountpoint -q /raid && exportfs -v 2>/dev/null | grep -q '/raid/nfs' && ss -lnt | grep -q ':80\b'"; then
+if remote_ok "$HQ_SRV_IP" "systemctl is-active --quiet chrony && mountpoint -q /raid && exportfs -v 2>/dev/null | grep -q '/raid/nfs' && ss -lnt | grep -q ':80\b' && [ -f /var/www/html/index.php ] && [ ! -f /var/www/html/index.html ] && [ -d /var/www/html/images ]"; then
   echo ">>> STEP 3 SKIP: hq-srv already configured"
 else
   ssh_run "$HQ_SRV_IP" "hq-srv"
