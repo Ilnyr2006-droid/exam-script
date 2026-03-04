@@ -160,29 +160,108 @@ if [ "$ROLE" = "isp" ]; then
     prompt_var ISP_BR_IFACE "ens37" "ISP interface toward BR"
 fi
 
+# Дефолтная адресация (используется, если CLIENT_KEY не задан)
+DEF_HQ_SRV_IP_CIDR="192.168.10.2/27"
+DEF_BR_SRV_IP_CIDR="192.168.100.2/28"
+DEF_HQ_RTR_WAN_IP_CIDR="172.16.1.2/28"
+DEF_BR_RTR_WAN_IP_CIDR="172.16.2.2/28"
+DEF_HQ_RTR_VLAN100_IP_CIDR="192.168.10.1/27"
+DEF_HQ_RTR_VLAN200_IP_CIDR="192.168.20.1/28"
+DEF_HQ_RTR_VLAN999_IP_CIDR="192.168.250.1/29"
+DEF_BR_RTR_LAN_IP_CIDR="192.168.100.1/28"
+DEF_HQ_CLI_IP_CIDR="192.168.20.2/28"
+DEF_ISP_HQ_IP_CIDR="172.16.1.1/28"
+DEF_ISP_BR_IP_CIDR="172.16.2.1/28"
+DEF_HQ_SRV_NET="192.168.10.0/27"
+DEF_HQ_CLI_NET="192.168.20.0/28"
+DEF_BR_SRV_NET="192.168.100.0/28"
+DEF_GRE_NET="10.0.0.0/30"
+DEF_GRE_HQ_IP="10.0.0.1"
+DEF_GRE_BR_IP="10.0.0.2"
+DEF_GRE_NETMASK="255.255.255.252"
+DEF_DHCP_RANGE_START="192.168.20.2"
+DEF_DHCP_RANGE_END="192.168.20.14"
+
+# Если задан CLIENT_KEY, генерируем уникальную, но стабильную адресацию
+if [ -n "${CLIENT_KEY:-}" ]; then
+    if ! command -v sha256sum >/dev/null 2>&1; then
+        echo "Ошибка: sha256sum не найден, генерация адресов по CLIENT_KEY недоступна"
+        exit 1
+    fi
+
+    SEED_HEX="$(echo -n "$CLIENT_KEY" | sha256sum | awk '{print $1}' | cut -c1-8)"
+    SEED=$((16#$SEED_HEX))
+
+    BASE_A=$(( (SEED % 200) + 20 ))
+    BASE_B=$(( ((SEED / 257) % 200) + 20 ))
+    WAN_C=$(( ((SEED / 65537) % 200) + 20 ))
+
+    next_octet() {
+        local base="$1" off="$2"
+        echo $(( ((base - 20 + off) % 200) + 20 ))
+    }
+
+    O1="$(next_octet "$BASE_B" 0)"
+    O2="$(next_octet "$BASE_B" 1)"
+    O3="$(next_octet "$BASE_B" 2)"
+    O4="$(next_octet "$BASE_B" 3)"
+    O5="$(next_octet "$BASE_B" 10)"
+
+    DEF_HQ_SRV_NET="10.${BASE_A}.${O1}.0/27"
+    DEF_HQ_CLI_NET="10.${BASE_A}.${O2}.0/28"
+    DEF_BR_SRV_NET="10.${BASE_A}.${O4}.0/28"
+    DEF_GRE_NET="10.${BASE_A}.${O5}.0/30"
+
+    DEF_HQ_RTR_VLAN100_IP_CIDR="10.${BASE_A}.${O1}.1/27"
+    DEF_HQ_SRV_IP_CIDR="10.${BASE_A}.${O1}.2/27"
+
+    DEF_HQ_RTR_VLAN200_IP_CIDR="10.${BASE_A}.${O2}.1/28"
+    DEF_HQ_CLI_IP_CIDR="10.${BASE_A}.${O2}.2/28"
+
+    DEF_HQ_RTR_VLAN999_IP_CIDR="10.${BASE_A}.${O3}.1/29"
+
+    DEF_BR_RTR_LAN_IP_CIDR="10.${BASE_A}.${O4}.1/28"
+    DEF_BR_SRV_IP_CIDR="10.${BASE_A}.${O4}.2/28"
+
+    DEF_ISP_HQ_IP_CIDR="172.16.${WAN_C}.1/28"
+    DEF_HQ_RTR_WAN_IP_CIDR="172.16.${WAN_C}.2/28"
+
+    WAN_D="$(next_octet "$WAN_C" 37)"
+    DEF_ISP_BR_IP_CIDR="172.16.${WAN_D}.1/28"
+    DEF_BR_RTR_WAN_IP_CIDR="172.16.${WAN_D}.2/28"
+
+    DEF_GRE_HQ_IP="10.${BASE_A}.${O5}.1"
+    DEF_GRE_BR_IP="10.${BASE_A}.${O5}.2"
+
+    DEF_DHCP_RANGE_START="10.${BASE_A}.${O2}.2"
+    DEF_DHCP_RANGE_END="10.${BASE_A}.${O2}.14"
+
+    echo ">>> CLIENT_KEY задан: используется сгенерированная адресация ($CLIENT_KEY)"
+fi
+
 # IP адреса (с CIDR там, где нужно)
-prompt_var HQ_SRV_IP_CIDR "192.168.10.2/27" "HQ-SRV IP/CIDR"
-prompt_var BR_SRV_IP_CIDR "192.168.100.2/28" "BR-SRV IP/CIDR"
-prompt_var HQ_RTR_WAN_IP_CIDR "172.16.1.2/28" "HQ-RTR WAN IP/CIDR"
-prompt_var BR_RTR_WAN_IP_CIDR "172.16.2.2/28" "BR-RTR WAN IP/CIDR"
-prompt_var HQ_RTR_VLAN100_IP_CIDR "192.168.10.1/27" "HQ-RTR VLAN100 IP/CIDR"
-prompt_var HQ_RTR_VLAN200_IP_CIDR "192.168.20.1/28" "HQ-RTR VLAN200 IP/CIDR"
-prompt_var HQ_RTR_VLAN999_IP_CIDR "192.168.250.1/29" "HQ-RTR VLAN999 IP/CIDR"
-prompt_var BR_RTR_LAN_IP_CIDR "192.168.100.1/28" "BR-RTR LAN IP/CIDR"
-prompt_var HQ_CLI_IP_CIDR "192.168.20.2/28" "HQ-CLI IP/CIDR"
-prompt_var ISP_HQ_IP_CIDR "172.16.1.1/28" "ISP IP toward HQ (${ISP_HQ_IFACE}) IP/CIDR"
-prompt_var ISP_BR_IP_CIDR "172.16.2.1/28" "ISP IP toward BR (${ISP_BR_IFACE}) IP/CIDR"
+prompt_var HQ_SRV_IP_CIDR "$DEF_HQ_SRV_IP_CIDR" "HQ-SRV IP/CIDR"
+prompt_var BR_SRV_IP_CIDR "$DEF_BR_SRV_IP_CIDR" "BR-SRV IP/CIDR"
+prompt_var HQ_RTR_WAN_IP_CIDR "$DEF_HQ_RTR_WAN_IP_CIDR" "HQ-RTR WAN IP/CIDR"
+prompt_var BR_RTR_WAN_IP_CIDR "$DEF_BR_RTR_WAN_IP_CIDR" "BR-RTR WAN IP/CIDR"
+prompt_var HQ_RTR_VLAN100_IP_CIDR "$DEF_HQ_RTR_VLAN100_IP_CIDR" "HQ-RTR VLAN100 IP/CIDR"
+prompt_var HQ_RTR_VLAN200_IP_CIDR "$DEF_HQ_RTR_VLAN200_IP_CIDR" "HQ-RTR VLAN200 IP/CIDR"
+prompt_var HQ_RTR_VLAN999_IP_CIDR "$DEF_HQ_RTR_VLAN999_IP_CIDR" "HQ-RTR VLAN999 IP/CIDR"
+prompt_var BR_RTR_LAN_IP_CIDR "$DEF_BR_RTR_LAN_IP_CIDR" "BR-RTR LAN IP/CIDR"
+prompt_var HQ_CLI_IP_CIDR "$DEF_HQ_CLI_IP_CIDR" "HQ-CLI IP/CIDR"
+prompt_var ISP_HQ_IP_CIDR "$DEF_ISP_HQ_IP_CIDR" "ISP IP toward HQ (${ISP_HQ_IFACE}) IP/CIDR"
+prompt_var ISP_BR_IP_CIDR "$DEF_ISP_BR_IP_CIDR" "ISP IP toward BR (${ISP_BR_IFACE}) IP/CIDR"
 
 # Сети (для маршрутов, DHCP, OSPF)
-prompt_var HQ_SRV_NET "192.168.10.0/27" "HQ-SRV network/CIDR"
-prompt_var HQ_CLI_NET "192.168.20.0/28" "HQ-CLI network/CIDR"
-prompt_var BR_SRV_NET "192.168.100.0/28" "BR-SRV network/CIDR"
-prompt_var GRE_NET "10.0.0.0/30" "GRE network/CIDR"
-prompt_var GRE_HQ_IP "10.0.0.1" "GRE IP on HQ-RTR (no CIDR)"
-prompt_var GRE_BR_IP "10.0.0.2" "GRE IP on BR-RTR (no CIDR)"
-prompt_var GRE_NETMASK "255.255.255.252" "GRE netmask"
-prompt_var DHCP_RANGE_START "192.168.20.2" "DHCP range start (HQ-CLI)"
-prompt_var DHCP_RANGE_END "192.168.20.14" "DHCP range end (HQ-CLI)"
+prompt_var HQ_SRV_NET "$DEF_HQ_SRV_NET" "HQ-SRV network/CIDR"
+prompt_var HQ_CLI_NET "$DEF_HQ_CLI_NET" "HQ-CLI network/CIDR"
+prompt_var BR_SRV_NET "$DEF_BR_SRV_NET" "BR-SRV network/CIDR"
+prompt_var GRE_NET "$DEF_GRE_NET" "GRE network/CIDR"
+prompt_var GRE_HQ_IP "$DEF_GRE_HQ_IP" "GRE IP on HQ-RTR (no CIDR)"
+prompt_var GRE_BR_IP "$DEF_GRE_BR_IP" "GRE IP on BR-RTR (no CIDR)"
+prompt_var GRE_NETMASK "$DEF_GRE_NETMASK" "GRE netmask"
+prompt_var DHCP_RANGE_START "$DEF_DHCP_RANGE_START" "DHCP range start (HQ-CLI)"
+prompt_var DHCP_RANGE_END "$DEF_DHCP_RANGE_END" "DHCP range end (HQ-CLI)"
 
 # Подсказка: шлюзы берем как IP ISP или .1 внутри подсети
 HQ_SRV_GW="${HQ_RTR_VLAN100_IP_CIDR%%/*}"
