@@ -386,12 +386,34 @@ EOF
   chmod 600 /home/irpoadmin/.ssh/config /home/irpoadmin/.ssh/id_rsa
   chmod 644 /home/irpoadmin/.ssh/id_rsa.pub
 
-  sudo -u irpoadmin sshpass -p "$PASS_ADM" ssh-copy-id     -p "$SSH_PORT"     -o StrictHostKeyChecking=no     -o UserKnownHostsFile=/dev/null     -o IdentitiesOnly=yes     -o PreferredAuthentications=password     -o PubkeyAuthentication=no     backupuser@hq-cli.au-team.irpo || true
+  sudo -u irpoadmin sshpass -p "$PASS_ADM" ssh-copy-id \
+    -f \
+    -F /dev/null \
+    -p "$SSH_PORT" \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    -o IdentitiesOnly=yes \
+    -o PreferredAuthentications=password \
+    -o PasswordAuthentication=yes \
+    -o PubkeyAuthentication=no \
+    backupuser@hq-cli.au-team.irpo
 
-  sudo -u irpoadmin RESTIC_PASSWORD="$PASS_ADM" restic snapshots --repo "sftp:backupuser@hq-cli.au-team.irpo:2026:/backup/etc" >/dev/null 2>&1 ||     sudo -u irpoadmin RESTIC_PASSWORD="$PASS_ADM" restic init --repo "sftp:backupuser@hq-cli.au-team.irpo:2026:/backup/etc"
+  sudo -u irpoadmin ssh \
+    -F /dev/null \
+    -p "$SSH_PORT" \
+    -i /home/irpoadmin/.ssh/id_rsa \
+    -o IdentitiesOnly=yes \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    backupuser@hq-cli.au-team.irpo 'echo RESTIC_SSH_OK' >/dev/null
 
-  sudo -u irpoadmin RESTIC_PASSWORD="$PASS_ADM" restic snapshots --repo "sftp:backupuser@hq-cli.au-team.irpo:2026:/backup/webdb" >/dev/null 2>&1 ||     sudo -u irpoadmin RESTIC_PASSWORD="$PASS_ADM" restic init --repo "sftp:backupuser@hq-cli.au-team.irpo:2026:/backup/webdb"
+  sudo -u irpoadmin RESTIC_PASSWORD="$PASS_ADM" restic snapshots --repo "sftp:backupuser@hq-cli.au-team.irpo:2026:/backup/etc" >/dev/null 2>&1 || \
+    sudo -u irpoadmin RESTIC_PASSWORD="$PASS_ADM" restic init --repo "sftp:backupuser@hq-cli.au-team.irpo:2026:/backup/etc"
 
+  sudo -u irpoadmin RESTIC_PASSWORD="$PASS_ADM" restic snapshots --repo "sftp:backupuser@hq-cli.au-team.irpo:2026:/backup/webdb" >/dev/null 2>&1 || \
+    sudo -u irpoadmin RESTIC_PASSWORD="$PASS_ADM" restic init --repo "sftp:backupuser@hq-cli.au-team.irpo:2026:/backup/webdb"
+
+  install_pkg libcap2-bin || true
   setcap 'cap_dac_read_search+ep' "$(command -v restic)" || true
 }
 
@@ -416,8 +438,8 @@ EOF
 }
 
 run_restic_backups_hq_srv() {
-  sudo -u irpoadmin /home/irpoadmin/backup_etc.sh || true
-  sudo -u irpoadmin /home/irpoadmin/backup_webdb.sh || true
+  sudo -u irpoadmin /home/irpoadmin/backup_etc.sh
+  sudo -u irpoadmin /home/irpoadmin/backup_webdb.sh
 }
 
 setup_fail2ban_hq_srv() {
@@ -454,7 +476,7 @@ case "$ROLE" in
   hq-cli)
     run_if_needed "HQ-CLI PAM mkhomedir" "grep -q 'pam_mkhomedir.so' /etc/pam.d/common-session" "setup_hq_cli_pam"
     run_if_needed "HQ-CLI CUPS printer" "lpstat -v 2>/dev/null | grep -q 'Virtual_PDF_Printer'" "setup_cups_hq_cli"
-    run_if_needed "HQ-CLI Restic storage" "id backupuser >/dev/null 2>&1 && [ -d /backup/etc ] && [ -d /backup/webdb ]" "setup_restic_hq_cli"
+    run_if_needed "HQ-CLI Restic storage" "id backupuser >/dev/null 2>&1 && [ -d /backup/etc ] && [ -d /backup/webdb ] && grep -q "^Port 2026$" /etc/ssh/sshd_config && grep -q "^PasswordAuthentication yes$" /etc/ssh/sshd_config && grep -q "^PubkeyAuthentication yes$" /etc/ssh/sshd_config && ( ! grep -q "^AllowUsers" /etc/ssh/sshd_config || grep -q "^AllowUsers .*backupuser" /etc/ssh/sshd_config )" "setup_restic_hq_cli"
     ;;
   hq-rtr)
     run_if_needed "HQ-RTR IPsec" "grep -q '^conn gre-encrypt' /etc/ipsec.conf 2>/dev/null && systemctl is-active --quiet strongswan-starter" "setup_ipsec '$HQ_RTR_IP' 'hq-rtr.au-team.irpo' '$BR_RTR_IP' 'br-rtr.au-team.irpo'"
@@ -468,9 +490,9 @@ case "$ROLE" in
     ;;
   hq-srv)
     run_if_needed "HQ-SRV CUPS server" "systemctl is-active --quiet cups && lpstat -v 2>/dev/null | grep -q 'CUPS-PDF'" "setup_cups_hq_srv"
-    run_if_needed "HQ-SRV Restic base" "id irpoadmin >/dev/null 2>&1 && [ -f /home/irpoadmin/.ssh/config ]" "setup_restic_hq_srv"
+    run_if_needed "HQ-SRV Restic base" "id irpoadmin >/dev/null 2>&1 && [ -f /home/irpoadmin/.ssh/config ] && sudo -u irpoadmin ssh -F /dev/null -p 2026 -i /home/irpoadmin/.ssh/id_rsa -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null backupuser@hq-cli.au-team.irpo true >/dev/null 2>&1" "setup_restic_hq_srv"
     run_if_needed "HQ-SRV Restic scripts" "[ -x /home/irpoadmin/backup_etc.sh ] && [ -x /home/irpoadmin/backup_webdb.sh ]" "setup_restic_scripts_hq_srv"
-    run_if_needed "HQ-SRV Restic snapshots" "sudo -u irpoadmin RESTIC_PASSWORD='P@ssw0rd' restic snapshots --repo 'sftp:backupuser@hq-cli.au-team.irpo:2026:/backup/etc' >/dev/null 2>&1 && sudo -u irpoadmin RESTIC_PASSWORD='P@ssw0rd' restic snapshots --repo 'sftp:backupuser@hq-cli.au-team.irpo:2026:/backup/webdb' >/dev/null 2>&1" "run_restic_backups_hq_srv"
+    run_if_needed "HQ-SRV Restic snapshots" "sudo -u irpoadmin RESTIC_PASSWORD='P@ssw0rd' restic snapshots --repo 'sftp:backupuser@hq-cli.au-team.irpo:2026:/backup/etc' >/dev/null 2>&1 && sudo -u irpoadmin RESTIC_PASSWORD='P@ssw0rd' restic snapshots --repo 'sftp:backupuser@hq-cli.au-team.irpo:2026:/backup/webdb' >/dev/null 2>&1" "setup_restic_hq_srv; setup_restic_scripts_hq_srv; run_restic_backups_hq_srv"
     run_if_needed "HQ-SRV rsyslog client" "systemctl is-active --quiet rsyslog && grep -q '^\*\.\* @${BR_SRV_IP}:514' /etc/rsyslog.d/90-remote-forward.conf 2>/dev/null" "setup_rsyslog_client"
     run_if_needed "HQ-SRV fail2ban" "systemctl is-active --quiet fail2ban && [ -f /etc/fail2ban/jail.local ] && grep -q '^port = 2026' /etc/fail2ban/jail.local" "setup_fail2ban_hq_srv"
     ;;
