@@ -273,7 +273,7 @@ main() {
   run_remote "$HQ_SRV_IP" "id irpoadmin >/dev/null 2>&1 && [ -x /home/irpoadmin/backup_etc.sh ] && [ -x /home/irpoadmin/backup_webdb.sh ]"
   record_check "10" "Restic скрипты backup созданы на HQ-SRV" "backup_etc.sh,backup_webdb.sh" "$?"
 
-  run_remote "$HQ_SRV_IP" "sudo -u irpoadmin RESTIC_PASSWORD='P@ssw0rd' restic snapshots --repo 'sftp:backupuser@hq-cli.au-team.irpo:/backup/etc' >/dev/null 2>&1 && sudo -u irpoadmin RESTIC_PASSWORD='P@ssw0rd' restic snapshots --repo 'sftp:backupuser@hq-cli.au-team.irpo:/backup/webdb' >/dev/null 2>&1"
+  run_remote "$HQ_SRV_IP" "sudo -u irpoadmin RESTIC_PASSWORD='P@ssw0rd' restic snapshots --repo 'sftp:backupuser@hq-cli.au-team.irpo:2026:/backup/etc' >/dev/null 2>&1 && sudo -u irpoadmin RESTIC_PASSWORD='P@ssw0rd' restic snapshots --repo 'sftp:backupuser@hq-cli.au-team.irpo:2026:/backup/webdb' >/dev/null 2>&1"
   record_check "10" "Restic репозитории доступны и snapshots читаются" "restic snapshots" "$?"
 
   print_summary
