@@ -7,11 +7,51 @@ export PATH="$PATH:/usr/sbin:/sbin:/usr/bin:/bin"
 ROLE="${1:-}"
 PASS_ADM="P@ssw0rd"
 ROOT_PASS="root"
-HQ_SRV_IP="192.168.10.2"
-BR_SRV_IP="192.168.100.2"
-HQ_CLI_IP="192.168.20.2"
-HQ_RTR_IP="172.16.1.2"
-BR_RTR_IP="172.16.2.2"
+
+DEF_HQ_SRV_IP="192.168.10.2"
+DEF_BR_SRV_IP="192.168.100.2"
+DEF_HQ_CLI_IP="192.168.20.2"
+DEF_HQ_RTR_IP="172.16.1.2"
+DEF_BR_RTR_IP="172.16.2.2"
+
+if [ -n "${CLIENT_KEY:-}" ]; then
+  if ! command -v sha256sum >/dev/null 2>&1; then
+    echo "ERROR: sha256sum is required for CLIENT_KEY mode"
+    exit 1
+  fi
+
+  SEED_HEX="$(echo -n "$CLIENT_KEY" | sha256sum | awk '{print $1}' | cut -c1-8)"
+  SEED=$((16#$SEED_HEX))
+
+  BASE_A=$(( (SEED % 200) + 20 ))
+  BASE_B=$(( ((SEED / 257) % 200) + 20 ))
+  WAN_C=$(( ((SEED / 65537) % 200) + 20 ))
+
+  next_octet() {
+    local base="$1" off="$2"
+    echo $(( ((base - 20 + off) % 200) + 20 ))
+  }
+
+  O1="$(next_octet "$BASE_B" 0)"
+  O2="$(next_octet "$BASE_B" 1)"
+  O4="$(next_octet "$BASE_B" 3)"
+
+  DEF_HQ_SRV_IP="10.${BASE_A}.${O1}.2"
+  DEF_HQ_CLI_IP="10.${BASE_A}.${O2}.2"
+  DEF_BR_SRV_IP="10.${BASE_A}.${O4}.2"
+
+  DEF_HQ_RTR_IP="172.16.${WAN_C}.2"
+  WAN_D="$(next_octet "$WAN_C" 37)"
+  DEF_BR_RTR_IP="172.16.${WAN_D}.2"
+
+  echo ">>> CLIENT_KEY mode enabled: $CLIENT_KEY"
+fi
+
+HQ_SRV_IP="$DEF_HQ_SRV_IP"
+BR_SRV_IP="$DEF_BR_SRV_IP"
+HQ_CLI_IP="$DEF_HQ_CLI_IP"
+HQ_RTR_IP="$DEF_HQ_RTR_IP"
+BR_RTR_IP="$DEF_BR_RTR_IP"
 SSH_PORT="2026"
 
 if [ -z "$ROLE" ]; then
@@ -197,13 +237,13 @@ EOF
 setup_rsyslog_server_br_srv() {
   install_pkg rsyslog
   mkdir -p /opt
-  cat > /etc/rsyslog.d/10-remote-server.conf <<'EOF'
+  cat > /etc/rsyslog.d/10-remote-server.conf <<EOF
 module(load="imudp")
 input(type="imudp" port="514")
 module(load="imtcp")
 input(type="imtcp" port="514")
 $template RemoteLogs,"/opt/%HOSTNAME%/%$YEAR%-%$MONTH%-%$DAY%.log"
-if $fromhost-ip != '127.0.0.1' and $fromhost-ip != '192.168.100.2' then {
+if $fromhost-ip != '127.0.0.1' and $fromhost-ip != '${BR_SRV_IP}' then {
     if $syslogseverity <= 4 then {
         ?RemoteLogs
         stop
@@ -216,8 +256,8 @@ EOF
 
 setup_rsyslog_client() {
   install_pkg rsyslog
-  cat > /etc/rsyslog.d/90-remote-forward.conf <<'EOF'
-*.* @192.168.100.2:514
+  cat > /etc/rsyslog.d/90-remote-forward.conf <<EOF
+*.* @${BR_SRV_IP}:514
 EOF
   systemctl restart rsyslog
   systemctl enable rsyslog
@@ -413,21 +453,21 @@ case "$ROLE" in
     run_if_needed "HQ-CLI Restic storage" "id backupuser >/dev/null 2>&1 && [ -d /backup/etc ] && [ -d /backup/webdb ]" "setup_restic_hq_cli"
     ;;
   hq-rtr)
-    run_if_needed "HQ-RTR IPsec" "grep -q '^conn gre-encrypt' /etc/ipsec.conf 2>/dev/null && systemctl is-active --quiet strongswan-starter" "setup_ipsec '172.16.1.2' 'hq-rtr.au-team.irpo' '172.16.2.2' 'br-rtr.au-team.irpo'"
+    run_if_needed "HQ-RTR IPsec" "grep -q '^conn gre-encrypt' /etc/ipsec.conf 2>/dev/null && systemctl is-active --quiet strongswan-starter" "setup_ipsec '$HQ_RTR_IP' 'hq-rtr.au-team.irpo' '$BR_RTR_IP' 'br-rtr.au-team.irpo'"
     run_if_needed "HQ-RTR firewall" "[ -x /etc/start_iptables.sh ] && grep -q 'DEST="${HQ_SRV_IP}"' /etc/start_iptables.sh" "setup_firewall_router '$HQ_SRV_IP' 'ens33'"
-    run_if_needed "HQ-RTR rsyslog client" "systemctl is-active --quiet rsyslog && grep -q '^\*\.\* @192.168.100.2:514' /etc/rsyslog.d/90-remote-forward.conf 2>/dev/null" "setup_rsyslog_client"
+    run_if_needed "HQ-RTR rsyslog client" "systemctl is-active --quiet rsyslog && grep -q '^\*\.\* @${BR_SRV_IP}:514' /etc/rsyslog.d/90-remote-forward.conf 2>/dev/null" "setup_rsyslog_client"
     ;;
   br-rtr)
-    run_if_needed "BR-RTR IPsec" "grep -q '^conn gre-encrypt' /etc/ipsec.conf 2>/dev/null && systemctl is-active --quiet strongswan-starter" "setup_ipsec '172.16.2.2' 'br-rtr.au-team.irpo' '172.16.1.2' 'hq-rtr.au-team.irpo'"
+    run_if_needed "BR-RTR IPsec" "grep -q '^conn gre-encrypt' /etc/ipsec.conf 2>/dev/null && systemctl is-active --quiet strongswan-starter" "setup_ipsec '$BR_RTR_IP' 'br-rtr.au-team.irpo' '$HQ_RTR_IP' 'hq-rtr.au-team.irpo'"
     run_if_needed "BR-RTR firewall" "[ -x /etc/start_iptables.sh ] && grep -q 'DEST="${BR_SRV_IP}"' /etc/start_iptables.sh" "setup_firewall_router '$BR_SRV_IP' 'ens33'"
-    run_if_needed "BR-RTR rsyslog client" "systemctl is-active --quiet rsyslog && grep -q '^\*\.\* @192.168.100.2:514' /etc/rsyslog.d/90-remote-forward.conf 2>/dev/null" "setup_rsyslog_client"
+    run_if_needed "BR-RTR rsyslog client" "systemctl is-active --quiet rsyslog && grep -q '^\*\.\* @${BR_SRV_IP}:514' /etc/rsyslog.d/90-remote-forward.conf 2>/dev/null" "setup_rsyslog_client"
     ;;
   hq-srv)
     run_if_needed "HQ-SRV CUPS server" "systemctl is-active --quiet cups && lpstat -v 2>/dev/null | grep -q 'CUPS-PDF'" "setup_cups_hq_srv"
     run_if_needed "HQ-SRV Restic base" "id irpoadmin >/dev/null 2>&1 && [ -f /home/irpoadmin/.ssh/config ]" "setup_restic_hq_srv"
     run_if_needed "HQ-SRV Restic scripts" "[ -x /home/irpoadmin/backup_etc.sh ] && [ -x /home/irpoadmin/backup_webdb.sh ]" "setup_restic_scripts_hq_srv"
     run_if_needed "HQ-SRV Restic snapshots" "sudo -u irpoadmin RESTIC_PASSWORD='P@ssw0rd' restic snapshots --repo 'sftp:backupuser@hq-cli.au-team.irpo:/backup/etc' >/dev/null 2>&1 && sudo -u irpoadmin RESTIC_PASSWORD='P@ssw0rd' restic snapshots --repo 'sftp:backupuser@hq-cli.au-team.irpo:/backup/webdb' >/dev/null 2>&1" "run_restic_backups_hq_srv"
-    run_if_needed "HQ-SRV rsyslog client" "systemctl is-active --quiet rsyslog && grep -q '^\*\.\* @192.168.100.2:514' /etc/rsyslog.d/90-remote-forward.conf 2>/dev/null" "setup_rsyslog_client"
+    run_if_needed "HQ-SRV rsyslog client" "systemctl is-active --quiet rsyslog && grep -q '^\*\.\* @${BR_SRV_IP}:514' /etc/rsyslog.d/90-remote-forward.conf 2>/dev/null" "setup_rsyslog_client"
     run_if_needed "HQ-SRV fail2ban" "systemctl is-active --quiet fail2ban && [ -f /etc/fail2ban/jail.local ] && grep -q '^port = 2026' /etc/fail2ban/jail.local" "setup_fail2ban_hq_srv"
     ;;
   *)
