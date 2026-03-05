@@ -191,12 +191,12 @@ if [ -z "${CLIENT_KEY:-}" ]; then
     exit 1
 fi
 case " ${ALLOWED_CLIENT_KEYS} " in
-    *" ${CLIENT_KEY} "*) ;;&
+    *" ${CLIENT_KEY} "*) ;;
     *)
         echo "Ошибка: недопустимый CLIENT_KEY: ${CLIENT_KEY}"
         echo "Разрешенные CLIENT_KEY: ${ALLOWED_CLIENT_KEYS}"
         exit 1
-        ;;&
+    ;;
 esac
 
 # Если задан CLIENT_KEY, генерируем уникальную, но стабильную адресацию
