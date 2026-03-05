@@ -20,12 +20,12 @@ if [ -z "${CLIENT_KEY:-}" ]; then
   exit 1
 fi
 case " ${ALLOWED_CLIENT_KEYS} " in
-  *" ${CLIENT_KEY} "*) ;;&
+  *" ${CLIENT_KEY} "*) ;;
   *)
     echo "ERROR: invalid CLIENT_KEY: ${CLIENT_KEY}"
     echo "Allowed CLIENT_KEY values: ${ALLOWED_CLIENT_KEYS}"
     exit 1
-    ;;&
+    ;;
 esac
 
 if [ -n "${CLIENT_KEY:-}" ]; then
