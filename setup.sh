@@ -188,12 +188,10 @@ ALLOWED_CLIENT_KEYS="69 346 582 666 714 858 903"
 CLIENT_KEY="$(printf %s "${CLIENT_KEY:-}" | tr -d '\r' | xargs)"
 if [ -z "${CLIENT_KEY:-}" ]; then
     echo "Ошибка: CLIENT_KEY обязателен."
-    echo "Разрешенные CLIENT_KEY: ${ALLOWED_CLIENT_KEYS}"
     exit 1
 fi
 if ! printf '%s\n' ${ALLOWED_CLIENT_KEYS} | grep -Fxq "${CLIENT_KEY}"; then
     echo "Ошибка: недопустимый CLIENT_KEY: ${CLIENT_KEY}"
-    echo "Разрешенные CLIENT_KEY: ${ALLOWED_CLIENT_KEYS}"
     exit 1
 fi
 
