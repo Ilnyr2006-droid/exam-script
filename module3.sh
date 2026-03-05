@@ -19,12 +19,12 @@ if [ -z "${CLIENT_KEY:-}" ]; then
   exit 1
 fi
 case " ${ALLOWED_CLIENT_KEYS} " in
-  *" ${CLIENT_KEY} "*) ;;&
+  *" ${CLIENT_KEY} "*) ;;
   *)
     echo "ERROR: invalid CLIENT_KEY: ${CLIENT_KEY}"
     echo "Allowed CLIENT_KEY values: ${ALLOWED_CLIENT_KEYS}"
     exit 1
-    ;;&
+    ;;
 esac
 DEF_HQ_RTR_IP="172.16.1.2"
 DEF_BR_RTR_IP="172.16.2.2"
