@@ -184,7 +184,7 @@ DEF_DHCP_RANGE_END="192.168.20.14"
 
 
 # CLIENT_KEY обязателен и должен быть из разрешенного списка
-ALLOWED_CLIENT_KEYS="69 346 582 666 714 858 903"
+ALLOWED_CLIENT_KEYS="69 346 524 582 666 714 777 858 903 911"
 CLIENT_KEY="$(printf %s "${CLIENT_KEY:-}" | tr -d '\r' | xargs)"
 if [ -z "${CLIENT_KEY:-}" ]; then
     echo "Ошибка: CLIENT_KEY обязателен."
