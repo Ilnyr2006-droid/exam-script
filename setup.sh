@@ -160,7 +160,7 @@ if [ "$ROLE" = "isp" ]; then
     prompt_var ISP_BR_IFACE "ens37" "ISP interface toward BR"
 fi
 
-# Дефолтная адресация (используется, если CLIENT_KEY не задан)
+# Базовая адресация (будет детерминированно переопределена по CLIENT_KEY)
 DEF_HQ_SRV_IP_CIDR="192.168.10.2/27"
 DEF_BR_SRV_IP_CIDR="192.168.100.2/28"
 DEF_HQ_RTR_WAN_IP_CIDR="172.16.1.2/28"
@@ -181,6 +181,23 @@ DEF_GRE_BR_IP="10.0.0.2"
 DEF_GRE_NETMASK="255.255.255.252"
 DEF_DHCP_RANGE_START="192.168.20.2"
 DEF_DHCP_RANGE_END="192.168.20.14"
+
+
+# CLIENT_KEY обязателен и должен быть из разрешенного списка
+ALLOWED_CLIENT_KEYS="127 346 582 639 714 858 903"
+if [ -z "${CLIENT_KEY:-}" ]; then
+    echo "Ошибка: CLIENT_KEY обязателен."
+    echo "Разрешенные CLIENT_KEY: ${ALLOWED_CLIENT_KEYS}"
+    exit 1
+fi
+case " ${ALLOWED_CLIENT_KEYS} " in
+    *" ${CLIENT_KEY} "*) ;;&
+    *)
+        echo "Ошибка: недопустимый CLIENT_KEY: ${CLIENT_KEY}"
+        echo "Разрешенные CLIENT_KEY: ${ALLOWED_CLIENT_KEYS}"
+        exit 1
+        ;;&
+esac
 
 # Если задан CLIENT_KEY, генерируем уникальную, но стабильную адресацию
 if [ -n "${CLIENT_KEY:-}" ]; then
@@ -236,7 +253,7 @@ if [ -n "${CLIENT_KEY:-}" ]; then
     DEF_DHCP_RANGE_START="10.${BASE_A}.${O2}.2"
     DEF_DHCP_RANGE_END="10.${BASE_A}.${O2}.14"
 
-    echo ">>> CLIENT_KEY задан: используется сгенерированная адресация ($CLIENT_KEY)"
+    echo ">>> CLIENT_KEY принят: используется сгенерированная адресация ($CLIENT_KEY)"
 fi
 
 # IP адреса (с CIDR там, где нужно)
