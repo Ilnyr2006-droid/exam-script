@@ -19,6 +19,21 @@ DEF_BR_RTR_IP="172.16.2.2"
 DEF_HQ_CLI_IP="192.168.20.2"
 DEF_HQ_CLI_NET="192.168.20.0/28"
 
+ALLOWED_CLIENT_KEYS="127 346 582 639 714 858 903"
+if [ -z "${CLIENT_KEY:-}" ]; then
+  echo "ERROR: CLIENT_KEY is required"
+  echo "Allowed CLIENT_KEY values: ${ALLOWED_CLIENT_KEYS}"
+  exit 1
+fi
+case " ${ALLOWED_CLIENT_KEYS} " in
+  *" ${CLIENT_KEY} "*) ;;&
+  *)
+    echo "ERROR: invalid CLIENT_KEY: ${CLIENT_KEY}"
+    echo "Allowed CLIENT_KEY values: ${ALLOWED_CLIENT_KEYS}"
+    exit 1
+    ;;&
+esac
+
 # If CLIENT_KEY is provided, generate deterministic unique addressing
 if [ -n "${CLIENT_KEY:-}" ]; then
   if ! command -v sha256sum >/dev/null 2>&1; then
@@ -51,7 +66,7 @@ if [ -n "${CLIENT_KEY:-}" ]; then
   WAN_D="$(next_octet "$WAN_C" 37)"
   DEF_BR_RTR_IP="172.16.${WAN_D}.2"
 
-  echo ">>> CLIENT_KEY mode enabled: $CLIENT_KEY"
+  echo ">>> CLIENT_KEY accepted: $CLIENT_KEY"
 fi
 
 HQ_SRV_IP="$DEF_HQ_SRV_IP"
