@@ -14,19 +14,15 @@ DEF_BR_RTR_IP="172.16.2.2"
 DEF_HQ_CLI_IP="192.168.20.2"
 
 ALLOWED_CLIENT_KEYS="69 346 582 666 714 858 903"
+CLIENT_KEY="$(printf %s "${CLIENT_KEY:-}" | tr -d '\r' | xargs)"
 if [ -z "${CLIENT_KEY:-}" ]; then
   echo "ERROR: CLIENT_KEY is required"
-  echo "Allowed CLIENT_KEY values: ${ALLOWED_CLIENT_KEYS}"
   exit 1
 fi
-case " ${ALLOWED_CLIENT_KEYS} " in
-  *" ${CLIENT_KEY} "*) ;;
-  *)
-    echo "ERROR: invalid CLIENT_KEY: ${CLIENT_KEY}"
-    echo "Allowed CLIENT_KEY values: ${ALLOWED_CLIENT_KEYS}"
-    exit 1
-    ;;
-esac
+if ! printf '%s\n' ${ALLOWED_CLIENT_KEYS} | grep -Fxq "${CLIENT_KEY}"; then
+  echo "ERROR: invalid CLIENT_KEY: ${CLIENT_KEY}"
+  exit 1
+fi
 
 if [ -n "${CLIENT_KEY:-}" ]; then
   if ! command -v sha256sum >/dev/null 2>&1; then
