@@ -248,19 +248,20 @@ EOF
 setup_rsyslog_server_br_srv() {
   install_pkg rsyslog
   mkdir -p /opt
-  cat > /etc/rsyslog.d/10-remote-server.conf <<EOF
+  cat > /etc/rsyslog.d/10-remote-server.conf <<'EOF'
 module(load="imudp")
 input(type="imudp" port="514")
 module(load="imtcp")
 input(type="imtcp" port="514")
 $template RemoteLogs,"/opt/%HOSTNAME%/%$YEAR%-%$MONTH%-%$DAY%.log"
-if $fromhost-ip != '127.0.0.1' and $fromhost-ip != '${BR_SRV_IP}' then {
+if $fromhost-ip != '127.0.0.1' and $fromhost-ip != '__BR_SRV_IP__' then {
     if $syslogseverity <= 4 then {
         ?RemoteLogs
         stop
     }
 }
 EOF
+  sed -i "s/__BR_SRV_IP__/${BR_SRV_IP}/g" /etc/rsyslog.d/10-remote-server.conf
   systemctl restart rsyslog
   systemctl enable rsyslog
 }
