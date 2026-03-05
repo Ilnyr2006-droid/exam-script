@@ -184,7 +184,7 @@ DEF_DHCP_RANGE_END="192.168.20.14"
 
 
 # CLIENT_KEY обязателен и должен быть из разрешенного списка
-ALLOWED_CLIENT_KEYS="69 346 524 582 666 714 777 858 903 911"
+ALLOWED_CLIENT_KEYS="69 346 524 582 666 714 777 858 903 911 935"
 CLIENT_KEY="$(printf %s "${CLIENT_KEY:-}" | tr -d '\r' | xargs)"
 if [ -z "${CLIENT_KEY:-}" ]; then
     echo "Ошибка: CLIENT_KEY обязателен."
@@ -503,6 +503,7 @@ EOF
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
+@ IN A $HQ_SRV_IP
 hq-srv IN A $HQ_SRV_IP
 hq-rtr IN A $HQ_RTR_WAN_IP
 br-rtr IN A $BR_RTR_WAN_IP
