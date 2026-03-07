@@ -432,8 +432,8 @@ CONF
     mount | grep ' /mnt/nfs ' || echo "WARN: /mnt/nfs is not mounted after mount -a"
 
     # Yandex Browser (best-effort)
-    install_pkg curl gnupg ca-certificates
-    if curl -fsSL https://repo.yandex.ru/yandex-browser/YANDEX-BROWSER-KEY.GPG | gpg --dearmor -o /usr/share/keyrings/yandex-browser.gpg; then
+    install_pkg wget gnupg ca-certificates curl
+    if curl -fsSL https://repo.yandex.ru/yandex-browser/YANDEX-BROWSER-KEY.GPG | gpg --dearmor --yes -o /usr/share/keyrings/yandex-browser.gpg; then
       echo "deb [signed-by=/usr/share/keyrings/yandex-browser.gpg] https://repo.yandex.ru/yandex-browser/deb stable main" > /etc/apt/sources.list.d/yandex-browser.list
       apt-get update
       install_pkg yandex-browser-stable || true
