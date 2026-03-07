@@ -1,4 +1,3 @@
-cat > fullscreen_joke.sh <<'EOF'
 #!/bin/bash
 
 # Получаем размеры терминала
