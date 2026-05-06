@@ -509,8 +509,8 @@ hq-rtr IN A $HQ_RTR_WAN_IP
 br-rtr IN A $BR_RTR_WAN_IP
 br-srv IN A $BR_SRV_IP
 hq-cli IN A $HQ_CLI_IP
-docker IN A $ISP_HQ_IP
-web    IN A $ISP_BR_IP
+web    IN A $ISP_HQ_IP
+docker IN A $ISP_BR_IP
 EOF
 
         # 2. Обратная зона HQ (192.168.10.x)
