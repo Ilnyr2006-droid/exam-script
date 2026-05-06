@@ -362,8 +362,13 @@ CONF
     fi
     mysql webdb < $ISO_MOUNT/web/dump.sql || true
     cp $ISO_MOUNT/web/index.php /var/www/html/
-    mkdir -p /var/www/html/images
-    cp $ISO_MOUNT/web/logo.png /var/www/html/images/
+    rm -rf /var/www/html/images
+    if [ -d "$ISO_MOUNT/web/images" ]; then
+      cp -a "$ISO_MOUNT/web/images" /var/www/html/
+    else
+      mkdir -p /var/www/html/images
+      [ -f "$ISO_MOUNT/web/logo.png" ] && cp "$ISO_MOUNT/web/logo.png" /var/www/html/images/
+    fi
     sed -i 's/password = "password";/password = "P@ssw0rd";/' /var/www/html/index.php
     sed -i 's/dbname = "db";/dbname = "webdb";/' /var/www/html/index.php
     chown -R www-data:www-data /var/www/html/
