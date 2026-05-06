@@ -411,11 +411,14 @@ CONF
     install_pkg realmd sssd sssd-tools libnss-sss libpam-sss adcli oddjob oddjob-mkhomedir packagekit samba-common-bin krb5-user
 
     echo "$PASS_ADM" | realm join -v --user=Administrator AU-TEAM.IRPO || true
+    realm deny --all || true
+    realm permit -g hq || realm permit -g "hq@au-team.irpo" || true
+    systemctl restart sssd || true
     kinit Administrator || true
     klist || true
 
-    # Добавляем sudo по GID доменной группы (если доступно)
-    gid=$(getent group "hquser1@au-team.irpo" | cut -d: -f3 || true)
+    # Добавляем sudo для доменной группы hq (если доступно)
+    gid=$(getent group "hq@au-team.irpo" | cut -d: -f3 || getent group "hq" | cut -d: -f3 || true)
     if [ -n "$gid" ]; then
       grep -q "%#${gid} ALL=(ALL) NOPASSWD: /bin/cat, /bin/grep, /usr/bin/id" /etc/sudoers || \
         echo "%#${gid} ALL=(ALL) NOPASSWD: /bin/cat, /bin/grep, /usr/bin/id" >> /etc/sudoers
