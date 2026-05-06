@@ -260,17 +260,17 @@ main() {
   run_remote "$HQ_CLI_IP" "lpstat -v 2>/dev/null | grep -q 'Virtual_PDF_Printer'"
   record_check "5" "Virtual_PDF_Printer добавлен на HQ-CLI" "lpstat" "$?"
 
-  run_remote "$BR_SRV_IP" "systemctl is-active rsyslog >/dev/null 2>&1 && ss -lun | grep -q ':514 '"
-  record_check "6" "Rsyslog сервер на BR-SRV слушает 514/udp" "imudp/imtcp" "$?"
+  run_remote "$HQ_SRV_IP" "systemctl is-active rsyslog >/dev/null 2>&1 && ss -lun | grep -q ':514 '"
+  record_check "6" "Rsyslog сервер на HQ-SRV слушает 514/udp" "imudp/imtcp" "$?"
 
-  run_remote "$HQ_RTR_IP" "grep -q '@${BR_SRV_IP}:514' /etc/rsyslog.d/90-remote-forward.conf"
+  run_remote "$HQ_RTR_IP" "grep -q '@${HQ_SRV_IP}:514' /etc/rsyslog.d/90-remote-forward.conf"
   record_check "6" "Rsyslog forwarding настроен на HQ-RTR" "90-remote-forward.conf" "$?"
 
-  run_remote "$BR_RTR_IP" "grep -q '@${BR_SRV_IP}:514' /etc/rsyslog.d/90-remote-forward.conf"
+  run_remote "$BR_RTR_IP" "grep -q '@${HQ_SRV_IP}:514' /etc/rsyslog.d/90-remote-forward.conf"
   record_check "6" "Rsyslog forwarding настроен на BR-RTR" "90-remote-forward.conf" "$?"
 
-  run_remote "$HQ_SRV_IP" "grep -q '@${BR_SRV_IP}:514' /etc/rsyslog.d/90-remote-forward.conf"
-  record_check "6" "Rsyslog forwarding настроен на HQ-SRV" "90-remote-forward.conf" "$?"
+  run_remote "$BR_SRV_IP" "grep -q '@${HQ_SRV_IP}:514' /etc/rsyslog.d/90-remote-forward.conf"
+  record_check "6" "Rsyslog forwarding настроен на BR-SRV" "90-remote-forward.conf" "$?"
 
   run_remote "$BR_SRV_IP" "test -f /etc/ansible/playbook/get_hostname_address.yml && test -f /etc/ansible/PC-INFO/hq-srv.yml && test -f /etc/ansible/PC-INFO/hq-cli.yml"
   record_check "8" "Отчеты инвентаризации Ansible сгенерированы" "/etc/ansible/PC-INFO/*.yml" "$?"
