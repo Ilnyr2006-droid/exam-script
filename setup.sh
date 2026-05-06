@@ -620,7 +620,6 @@ iface gre30 inet tunnel
     endpoint $BR_RTR_WAN_IP
     ttl 255
     mtu 1476
-    post-up ip route replace $BR_SRV_NET via $GRE_BR_IP
 EOF
         systemctl restart networking
 
@@ -661,13 +660,19 @@ frr version 8.1
 frr defaults traditional
 hostname hq-rtr
 interface gre30
+ ip ospf area 0
+ ip ospf network point-to-point
  ip ospf authentication message-digest
  ip ospf message-digest-key 1 md5 1c+rYtGm
 !
 router ospf
- network $HQ_SRV_NET area 0
- network $HQ_CLI_NET area 0
- network $GRE_NET area 0
+ redistribute connected route-map OSPF_CONNECTED
+!
+ip prefix-list OSPF_CONNECTED seq 10 permit $HQ_SRV_NET
+ip prefix-list OSPF_CONNECTED seq 20 permit $HQ_CLI_NET
+!
+route-map OSPF_CONNECTED permit 10
+ match ip address prefix-list OSPF_CONNECTED
 !
 line vty
 EOF
@@ -700,8 +705,6 @@ iface gre30 inet tunnel
     endpoint $HQ_RTR_WAN_IP
     ttl 255
     mtu 1476
-    post-up ip route replace $HQ_SRV_NET via $GRE_HQ_IP
-    post-up ip route replace $HQ_CLI_NET via $GRE_HQ_IP
 EOF
         systemctl restart networking
 
@@ -725,12 +728,18 @@ frr version 8.1
 frr defaults traditional
 hostname br-rtr
 interface gre30
+ ip ospf area 0
+ ip ospf network point-to-point
  ip ospf authentication message-digest
  ip ospf message-digest-key 1 md5 1c+rYtGm
 !
 router ospf
- network $BR_SRV_NET area 0
- network $GRE_NET area 0
+ redistribute connected route-map OSPF_CONNECTED
+!
+ip prefix-list OSPF_CONNECTED seq 10 permit $BR_SRV_NET
+!
+route-map OSPF_CONNECTED permit 10
+ match ip address prefix-list OSPF_CONNECTED
 !
 line vty
 EOF
