@@ -215,11 +215,11 @@ main() {
   run_remote "$BR_SRV_IP" "systemctl is-active samba-ad-dc >/dev/null 2>&1"
   record_check "6" "Samba AD DC на BR-SRV активен" "samba-ad-dc" "$?"
 
-  run_remote "$BR_SRV_IP" "docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^testapp$'"
-  record_check "6" "Контейнер testapp запущен" "docker" "$?"
+  run_remote "$BR_SRV_IP" "docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^tespapp$'"
+  record_check "6" "Контейнер tespapp запущен" "docker" "$?"
 
   run_remote "$BR_SRV_IP" "ss -lnt | grep -q ':8080 '"
-  record_check "6" "Приложение на BR-SRV слушает 8080/tcp" "testapp" "$?"
+  record_check "6" "Приложение на BR-SRV слушает 8080/tcp" "tespapp" "$?"
 
   run_remote "$HQ_CLI_IP" "realm list 2>/dev/null | grep -qi 'au-team.irpo'"
   record_check "7" "HQ-CLI присоединен к домену" "realm list" "$?"
