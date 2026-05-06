@@ -211,13 +211,13 @@ CONF
     if [ -d "$ISO_MOUNT/docker" ]; then
       docker load -i $ISO_MOUNT/docker/mariadb_latest.tar
       docker load -i $ISO_MOUNT/docker/site_latest.tar
-        mkdir -p /opt/testapp
-        cat <<CONF > /opt/testapp/docker-compose.yml
+        mkdir -p /opt/tespapp
+        cat <<CONF > /opt/tespapp/docker-compose.yml
 version: '3.8'
 services:
-  testapp:
+  tespapp:
     image: site:latest
-    container_name: testapp
+    container_name: tespapp
     ports:
       - "8080:8000"
     depends_on:
@@ -244,8 +244,8 @@ services:
 volumes:
   db_data:
 CONF
-      cd /opt/testapp && docker-compose down -v --remove-orphans || true
-      cd /opt/testapp && docker-compose up -d
+      cd /opt/tespapp && docker-compose down -v --remove-orphans || true
+      cd /opt/tespapp && docker-compose up -d
       docker restart db
       sleep 8
       if ! docker exec db mariadb -uroot -p"root$PASS_ADM" -e "SELECT 1;" >/dev/null 2>&1; then
@@ -260,7 +260,7 @@ CONF
       docker exec db mariadb $DB_ROOT_AUTH -e "CREATE USER IF NOT EXISTS 'test'@'%' IDENTIFIED BY '$PASS_ADM';" || true
       docker exec db mariadb $DB_ROOT_AUTH -e "ALTER USER 'test'@'%' IDENTIFIED BY '$PASS_ADM';" || true
       docker exec db mariadb $DB_ROOT_AUTH -e "GRANT ALL PRIVILEGES ON testdb.* TO 'test'@'%'; FLUSH PRIVILEGES;" || true
-      docker restart testapp
+      docker restart tespapp
       ok=0
       for _ in $(seq 1 24); do
         if /usr/bin/curl -fsS http://127.0.0.1:8080 >/dev/null 2>&1; then
@@ -270,10 +270,10 @@ CONF
         sleep 5
       done
       if [ "$ok" -ne 1 ]; then
-        echo "ERROR: testapp is not reachable on br-srv localhost:8080"
+        echo "ERROR: tespapp is not reachable on br-srv localhost:8080"
         docker ps || true
         docker logs --tail 80 db || true
-        docker logs --tail 80 testapp || true
+        docker logs --tail 80 tespapp || true
         exit 1
       fi
     else
@@ -554,7 +554,7 @@ systemctl restart chrony
 htpasswd -bc /etc/nginx/.htpasswd WEB P@ssw0rd
 cat <<CONF > /etc/nginx/sites-available/reverse_proxy.conf
 upstream hq_srv_app { server ${HQ_SRV_IP}:80; }
-upstream testapp_app { server ${BR_SRV_IP}:8080; }
+upstream tespapp_app { server ${BR_SRV_IP}:8080; }
 server {
     listen 80;
     server_name web.au-team.irpo;
@@ -571,7 +571,7 @@ server {
     listen 80;
     server_name docker.au-team.irpo;
     location / {
-        proxy_pass http://testapp_app;
+        proxy_pass http://tespapp_app;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
     }
@@ -608,7 +608,7 @@ curl -fsSI "http://${HQ_SRV_IP}:80" >/dev/null || {
 }
 
 echo ">>> STEP 4: BR-SRV (Samba AD + Ansible + Docker) — ISO required"
-if remote_ok "$BR_SRV_IP" "systemctl is-active --quiet chrony && systemctl is-active --quiet samba-ad-dc && docker ps --format '{{.Names}}' | grep -qx testapp"; then
+if remote_ok "$BR_SRV_IP" "systemctl is-active --quiet chrony && systemctl is-active --quiet samba-ad-dc && docker ps --format '{{.Names}}' | grep -qx tespapp"; then
   echo ">>> STEP 4 SKIP: br-srv already configured"
 else
   # временно ставим 8.8.8.8, если нужно скачать пакеты
