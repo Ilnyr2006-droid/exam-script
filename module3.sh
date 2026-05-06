@@ -6,7 +6,7 @@ export PATH="$PATH:/usr/sbin:/sbin:/usr/bin:/bin"
 
 ROLE="${1:-}"
 PASS_ADM="P@ssw0rd"
-ROOT_PASS="root"
+ROOT_PASS="${ROOT_PASS:-P@ssw0rd}"
 
 DEF_HQ_SRV_IP="192.168.10.2"
 DEF_BR_SRV_IP="192.168.100.2"
@@ -375,30 +375,50 @@ extendedKeyUsage=serverAuth
 EOF
   openssl x509 -req -in /root/pki/docker.au-team.irpo.csr -CA /root/pki/ca.crt -CAkey /root/pki/ca.key -CAserial /root/pki/ca.srl \
     -out /root/pki/docker.au-team.irpo.crt -days 365 -sha256 -extfile /root/pki/docker.ext
+
+  mkdir -p /home/sshuser/pki
+  cp /root/pki/ca.crt /home/sshuser/pki/
+  cp /root/pki/web.au-team.irpo.crt /home/sshuser/pki/
+  cp /root/pki/web.au-team.irpo.key /home/sshuser/pki/
+  cp /root/pki/docker.au-team.irpo.crt /home/sshuser/pki/
+  cp /root/pki/docker.au-team.irpo.key /home/sshuser/pki/
+  chown -R sshuser:sshuser /home/sshuser/pki
+  chmod 755 /home/sshuser /home/sshuser/pki
+  chmod 644 /home/sshuser/pki/*.crt
+  chmod 600 /home/sshuser/pki/*.key
 }
 
 setup_https_hq_cli() {
-  install_pkg ca-certificates openssl sshpass
-  sshpass -p "$ROOT_PASS" scp -P "$SSH_PORT" \
-    -o StrictHostKeyChecking=no \
-    -o UserKnownHostsFile=/dev/null \
-    root@"$HQ_SRV_IP":/root/pki/ca.crt /usr/local/share/ca-certificates/au-team-irpo-ca.crt
+  install_pkg ca-certificates openssl sshpass libnss3-tools
+  sshpass -p "$PASS_ADM" scp -P "$SSH_PORT"     -o StrictHostKeyChecking=no     -o UserKnownHostsFile=/dev/null     -o IdentitiesOnly=yes     -o PreferredAuthentications=password     -o PubkeyAuthentication=no     sshuser@"$HQ_SRV_IP":/home/sshuser/pki/ca.crt /usr/local/share/ca-certificates/au-team-irpo-ca.crt
   update-ca-certificates
+
+  mkdir -p /home/user/.pki/nssdb
+  chown -R user:user /home/user/.pki
+  if [ ! -f /home/user/.pki/nssdb/cert9.db ]; then
+    sudo -u user certutil -N -d sql:/home/user/.pki/nssdb --empty-password >/dev/null 2>&1 || true
+  fi
+  sudo -u user certutil -D -n "au-team-irpo CA" -d sql:/home/user/.pki/nssdb >/dev/null 2>&1 || true
+  sudo -u user certutil -A -n "au-team-irpo CA" -t "C,," -i /usr/local/share/ca-certificates/au-team-irpo-ca.crt -d sql:/home/user/.pki/nssdb >/dev/null 2>&1 || true
+
+  for profile in /home/user/.mozilla/firefox/*.default* /home/user/.mozilla/firefox/*.default-release; do
+    [ -d "$profile" ] || continue
+    sudo -u user certutil -D -n "au-team-irpo CA" -d sql:"$profile" >/dev/null 2>&1 || true
+    sudo -u user certutil -A -n "au-team-irpo CA" -t "C,," -i /usr/local/share/ca-certificates/au-team-irpo-ca.crt -d sql:"$profile" >/dev/null 2>&1 || true
+  done
 }
 
 setup_https_isp() {
   install_pkg nginx apache2-utils openssl sshpass ca-certificates
   mkdir -p /etc/nginx/ssl
-  sshpass -p "$ROOT_PASS" scp -P "$SSH_PORT" \
+  sshpass -p "$PASS_ADM" ssh -p "$SSH_PORT" \
     -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null \
-    root@"$HQ_SRV_IP":/root/pki/ca.crt \
-    root@"$HQ_SRV_IP":/root/pki/web.au-team.irpo.crt \
-    root@"$HQ_SRV_IP":/root/pki/web.au-team.irpo.key \
-    root@"$HQ_SRV_IP":/root/pki/docker.au-team.irpo.crt \
-    root@"$HQ_SRV_IP":/root/pki/docker.au-team.irpo.key \
-    /etc/nginx/ssl/
-
+    -o IdentitiesOnly=yes \
+    -o PreferredAuthentications=password \
+    -o PubkeyAuthentication=no \
+    sshuser@"$HQ_SRV_IP" \
+    'tar -C /home/sshuser/pki -cf - ca.crt web.au-team.irpo.crt web.au-team.irpo.key docker.au-team.irpo.crt docker.au-team.irpo.key' | tar -C /etc/nginx/ssl -xf -
   htpasswd -bc /etc/nginx/.htpasswd WEB P@ssw0rd
   cat > /etc/nginx/sites-available/reverse_proxy.conf <<EOF
 upstream hq_srv_app { server ${HQ_SRV_IP}:80; }
@@ -596,7 +616,7 @@ case "$ROLE" in
   hq-cli)
     run_if_needed "HQ-CLI PAM mkhomedir" "grep -q 'pam_mkhomedir.so' /etc/pam.d/common-session" "setup_hq_cli_pam"
     run_if_needed "HQ-CLI CUPS printer" "lpstat -v 2>/dev/null | grep -q 'Virtual_PDF_Printer'" "setup_cups_hq_cli"
-    run_if_needed "HQ-CLI trust CA" "[ -f /usr/local/share/ca-certificates/au-team-irpo-ca.crt ]" "setup_https_hq_cli"
+    run_if_needed "HQ-CLI trust CA" "[ -f /usr/local/share/ca-certificates/au-team-irpo-ca.crt ] && grep -q 'au-team-irpo CA' /etc/ssl/certs/ca-certificates.crt 2>/dev/null" "setup_https_hq_cli"
     run_if_needed "HQ-CLI Restic storage" "id backupuser >/dev/null 2>&1 && [ -d /backup/etc ] && [ -d /backup/webdb ] && grep -q '^Port 2026$' /etc/ssh/sshd_config && grep -q '^PasswordAuthentication yes$' /etc/ssh/sshd_config && grep -q '^PubkeyAuthentication yes$' /etc/ssh/sshd_config && ( ! grep -q '^AllowUsers' /etc/ssh/sshd_config || grep -q '^AllowUsers .*backupuser' /etc/ssh/sshd_config )" "setup_restic_hq_cli"
     ;;
   hq-rtr)
@@ -610,7 +630,7 @@ case "$ROLE" in
     run_if_needed "BR-RTR rsyslog client" "systemctl is-active --quiet rsyslog && grep -q '^\*\.\* @${HQ_SRV_IP}:514' /etc/rsyslog.d/90-remote-forward.conf 2>/dev/null" "setup_rsyslog_client"
     ;;
   hq-srv)
-    run_if_needed "HQ-SRV CA and certificates" "[ -f /root/pki/ca.crt ] && [ -f /root/pki/web.au-team.irpo.crt ] && [ -f /root/pki/docker.au-team.irpo.crt ]" "setup_ca_hq_srv"
+    run_if_needed "HQ-SRV CA and certificates" "[ -f /root/pki/ca.crt ] && [ -f /root/pki/web.au-team.irpo.crt ] && [ -f /root/pki/docker.au-team.irpo.crt ] && [ -f /home/sshuser/pki/ca.crt ] && [ -f /home/sshuser/pki/web.au-team.irpo.crt ] && [ -f /home/sshuser/pki/docker.au-team.irpo.crt ]" "setup_ca_hq_srv"
     run_if_needed "HQ-SRV CUPS server" "systemctl is-active --quiet cups && lpstat -v 2>/dev/null | grep -q 'CUPS-PDF'" "setup_cups_hq_srv"
     run_if_needed "HQ-SRV Restic base" "id irpoadmin >/dev/null 2>&1 && [ -f /home/irpoadmin/.ssh/config ] && sudo -u irpoadmin ssh -F /dev/null -p 2026 -i /home/irpoadmin/.ssh/id_rsa -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null backupuser@hq-cli.au-team.irpo true >/dev/null 2>&1" "setup_restic_hq_srv"
     run_if_needed "HQ-SRV Restic scripts" "[ -x /home/irpoadmin/backup_etc.sh ] && [ -x /home/irpoadmin/backup_webdb.sh ]" "setup_restic_scripts_hq_srv"
