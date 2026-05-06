@@ -66,7 +66,7 @@ BR_RTR_IP="$DEF_BR_RTR_IP"
 SSH_PORT="2026"
 
 if [ -z "$ROLE" ]; then
-  echo "Usage: $0 {br-srv|hq-cli|hq-rtr|br-rtr|hq-srv}"
+  echo "Usage: $0 {br-srv|hq-cli|hq-rtr|br-rtr|hq-srv|isp}"
   exit 1
 fi
 
@@ -345,6 +345,114 @@ setup_cups_hq_cli() {
   lpadmin -p Virtual_PDF_Printer -E -v ipp://hq-srv.au-team.irpo/printers/CUPS-PDF -m everywhere
 }
 
+setup_ca_hq_srv() {
+  install_pkg openssl
+  mkdir -p /root/pki
+  cd /root/pki
+
+  if [ ! -f /root/pki/ca.key ] || [ ! -f /root/pki/ca.crt ]; then
+    openssl genrsa -out /root/pki/ca.key 4096
+    openssl req -new -x509 -sha256 -days 365 -key /root/pki/ca.key -out /root/pki/ca.crt \
+      -subj "/C=RU/ST=Tatarstan/L=Kazan/O=au-team.irpo/CN=au-team.irpo CA"
+  fi
+
+  openssl genrsa -out /root/pki/web.au-team.irpo.key 2048
+  openssl req -new -key /root/pki/web.au-team.irpo.key -out /root/pki/web.au-team.irpo.csr \
+    -subj "/C=RU/ST=Tatarstan/L=Kazan/O=au-team.irpo/CN=web.au-team.irpo"
+  cat > /root/pki/web.ext <<'EOF'
+subjectAltName=DNS:web.au-team.irpo
+extendedKeyUsage=serverAuth
+EOF
+  openssl x509 -req -in /root/pki/web.au-team.irpo.csr -CA /root/pki/ca.crt -CAkey /root/pki/ca.key -CAcreateserial \
+    -out /root/pki/web.au-team.irpo.crt -days 365 -sha256 -extfile /root/pki/web.ext
+
+  openssl genrsa -out /root/pki/docker.au-team.irpo.key 2048
+  openssl req -new -key /root/pki/docker.au-team.irpo.key -out /root/pki/docker.au-team.irpo.csr \
+    -subj "/C=RU/ST=Tatarstan/L=Kazan/O=au-team.irpo/CN=docker.au-team.irpo"
+  cat > /root/pki/docker.ext <<'EOF'
+subjectAltName=DNS:docker.au-team.irpo
+extendedKeyUsage=serverAuth
+EOF
+  openssl x509 -req -in /root/pki/docker.au-team.irpo.csr -CA /root/pki/ca.crt -CAkey /root/pki/ca.key -CAserial /root/pki/ca.srl \
+    -out /root/pki/docker.au-team.irpo.crt -days 365 -sha256 -extfile /root/pki/docker.ext
+}
+
+setup_https_hq_cli() {
+  install_pkg ca-certificates openssl sshpass
+  sshpass -p "$ROOT_PASS" scp -P "$SSH_PORT" \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    root@"$HQ_SRV_IP":/root/pki/ca.crt /usr/local/share/ca-certificates/au-team-irpo-ca.crt
+  update-ca-certificates
+}
+
+setup_https_isp() {
+  install_pkg nginx apache2-utils openssl sshpass ca-certificates
+  mkdir -p /etc/nginx/ssl
+  sshpass -p "$ROOT_PASS" scp -P "$SSH_PORT" \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    root@"$HQ_SRV_IP":/root/pki/ca.crt \
+    root@"$HQ_SRV_IP":/root/pki/web.au-team.irpo.crt \
+    root@"$HQ_SRV_IP":/root/pki/web.au-team.irpo.key \
+    root@"$HQ_SRV_IP":/root/pki/docker.au-team.irpo.crt \
+    root@"$HQ_SRV_IP":/root/pki/docker.au-team.irpo.key \
+    /etc/nginx/ssl/
+
+  htpasswd -bc /etc/nginx/.htpasswd WEB P@ssw0rd
+  cat > /etc/nginx/sites-available/reverse_proxy.conf <<EOF
+upstream hq_srv_app { server ${HQ_SRV_IP}:80; }
+upstream tespapp_app { server ${BR_SRV_IP}:8080; }
+
+server {
+    listen 80;
+    server_name web.au-team.irpo;
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name web.au-team.irpo;
+    ssl_certificate /etc/nginx/ssl/web.au-team.irpo.crt;
+    ssl_certificate_key /etc/nginx/ssl/web.au-team.irpo.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    auth_basic "Restricted area";
+    auth_basic_user_file /etc/nginx/.htpasswd;
+
+    location / {
+        proxy_pass http://hq_srv_app;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+}
+
+server {
+    listen 80;
+    server_name docker.au-team.irpo;
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name docker.au-team.irpo;
+    ssl_certificate /etc/nginx/ssl/docker.au-team.irpo.crt;
+    ssl_certificate_key /etc/nginx/ssl/docker.au-team.irpo.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    location / {
+        proxy_pass http://tespapp_app;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+}
+EOF
+  nginx -t
+  systemctl restart nginx
+}
+
 
 setup_restic_hq_cli() {
   install_pkg restic openssh-server
@@ -488,6 +596,7 @@ case "$ROLE" in
   hq-cli)
     run_if_needed "HQ-CLI PAM mkhomedir" "grep -q 'pam_mkhomedir.so' /etc/pam.d/common-session" "setup_hq_cli_pam"
     run_if_needed "HQ-CLI CUPS printer" "lpstat -v 2>/dev/null | grep -q 'Virtual_PDF_Printer'" "setup_cups_hq_cli"
+    run_if_needed "HQ-CLI trust CA" "[ -f /usr/local/share/ca-certificates/au-team-irpo-ca.crt ]" "setup_https_hq_cli"
     run_if_needed "HQ-CLI Restic storage" "id backupuser >/dev/null 2>&1 && [ -d /backup/etc ] && [ -d /backup/webdb ] && grep -q '^Port 2026$' /etc/ssh/sshd_config && grep -q '^PasswordAuthentication yes$' /etc/ssh/sshd_config && grep -q '^PubkeyAuthentication yes$' /etc/ssh/sshd_config && ( ! grep -q '^AllowUsers' /etc/ssh/sshd_config || grep -q '^AllowUsers .*backupuser' /etc/ssh/sshd_config )" "setup_restic_hq_cli"
     ;;
   hq-rtr)
@@ -501,12 +610,16 @@ case "$ROLE" in
     run_if_needed "BR-RTR rsyslog client" "systemctl is-active --quiet rsyslog && grep -q '^\*\.\* @${HQ_SRV_IP}:514' /etc/rsyslog.d/90-remote-forward.conf 2>/dev/null" "setup_rsyslog_client"
     ;;
   hq-srv)
+    run_if_needed "HQ-SRV CA and certificates" "[ -f /root/pki/ca.crt ] && [ -f /root/pki/web.au-team.irpo.crt ] && [ -f /root/pki/docker.au-team.irpo.crt ]" "setup_ca_hq_srv"
     run_if_needed "HQ-SRV CUPS server" "systemctl is-active --quiet cups && lpstat -v 2>/dev/null | grep -q 'CUPS-PDF'" "setup_cups_hq_srv"
     run_if_needed "HQ-SRV Restic base" "id irpoadmin >/dev/null 2>&1 && [ -f /home/irpoadmin/.ssh/config ] && sudo -u irpoadmin ssh -F /dev/null -p 2026 -i /home/irpoadmin/.ssh/id_rsa -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null backupuser@hq-cli.au-team.irpo true >/dev/null 2>&1" "setup_restic_hq_srv"
     run_if_needed "HQ-SRV Restic scripts" "[ -x /home/irpoadmin/backup_etc.sh ] && [ -x /home/irpoadmin/backup_webdb.sh ]" "setup_restic_scripts_hq_srv"
     run_if_needed "HQ-SRV Restic snapshots" "sudo -u irpoadmin RESTIC_PASSWORD='P@ssw0rd' restic snapshots --repo 'sftp:backupuser@hq-cli.au-team.irpo:2026:/backup/etc' >/dev/null 2>&1 && sudo -u irpoadmin RESTIC_PASSWORD='P@ssw0rd' restic snapshots --repo 'sftp:backupuser@hq-cli.au-team.irpo:2026:/backup/webdb' >/dev/null 2>&1" "setup_restic_hq_srv; setup_restic_scripts_hq_srv; run_restic_backups_hq_srv"
     run_if_needed "HQ-SRV rsyslog server" "systemctl is-active --quiet rsyslog && [ -f /etc/rsyslog.d/10-remote-server.conf ]" "setup_rsyslog_server_hq_srv"
     run_if_needed "HQ-SRV fail2ban" "systemctl is-active --quiet fail2ban && [ -f /etc/fail2ban/jail.local ] && grep -q '^port = 2026' /etc/fail2ban/jail.local" "setup_fail2ban_hq_srv"
+    ;;
+  isp)
+    run_if_needed "ISP HTTPS reverse proxy" "systemctl is-active --quiet nginx && grep -q 'listen 443 ssl;' /etc/nginx/sites-available/reverse_proxy.conf 2>/dev/null && [ -f /etc/nginx/ssl/web.au-team.irpo.crt ] && [ -f /etc/nginx/ssl/docker.au-team.irpo.crt ]" "setup_https_isp"
     ;;
   *)
     echo "Unknown role: $ROLE"
