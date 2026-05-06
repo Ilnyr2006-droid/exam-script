@@ -353,9 +353,9 @@ done
 # --- DNS по заданию ---
 if [ "$ROLE" != "isp" ]; then
 cat <<EOF > /etc/resolv.conf
-search au.team.irpo
-domain au.team.irpo
-nameserver 192.168.10.2
+search $DOMAIN
+domain $DOMAIN
+nameserver $HQ_SRV_IP
 nameserver 8.8.8.8
 EOF
 fi
@@ -459,39 +459,39 @@ EOF
         # Local Zones Definition
         cat <<EOF > /etc/bind/named.conf.local
 // Прямая зона
-zone "au-team.irpo" {
+zone "$DOMAIN" {
     type master;
-    file "/etc/bind/zones/db.au-team.irpo";
+    file "/etc/bind/zones/db.$DOMAIN";
 };
 
-// Обратная зона для серверов (192.168.10.x)
-zone "10.168.192.in-addr.arpa" {
+// Обратная зона для серверов HQ
+zone "$HQ_SRV_REV_ZONE" {
     type master;
-    file "/etc/bind/zones/db.10.168.192.in-addr.arpa";
+    file "/etc/bind/zones/db.$HQ_SRV_REV_ZONE";
 };
 
-// Обратная зона для клиентов (192.168.20.x)
-zone "20.168.192.in-addr.arpa" {
+// Обратная зона для клиентов HQ
+zone "$HQ_CLI_REV_ZONE" {
     type master;
-    file "/etc/bind/zones/db.20.168.192.in-addr.arpa";
+    file "/etc/bind/zones/db.$HQ_CLI_REV_ZONE";
 };
 
-// Обратная зона для WAN HQ (172.16.1.x)
-zone "1.16.172.in-addr.arpa" {
+// Обратная зона для WAN HQ
+zone "$HQ_WAN_REV_ZONE" {
     type master;
-    file "/etc/bind/zones/db.1.16.172.in-addr.arpa";
+    file "/etc/bind/zones/db.$HQ_WAN_REV_ZONE";
 };
 
-// Обратная зона для WAN BR (172.16.2.x)
-zone "2.16.172.in-addr.arpa" {
+// Обратная зона для WAN BR
+zone "$BR_WAN_REV_ZONE" {
     type master;
-    file "/etc/bind/zones/db.2.16.172.in-addr.arpa";
+    file "/etc/bind/zones/db.$BR_WAN_REV_ZONE";
 };
 
-// Обратная зона для филиала (192.168.100.x)
-zone "100.168.192.in-addr.arpa" {
+// Обратная зона для филиала BR
+zone "$BR_SRV_REV_ZONE" {
     type master;
-    file "/etc/bind/zones/db.100.168.192.in-addr.arpa";
+    file "/etc/bind/zones/db.$BR_SRV_REV_ZONE";
 };
 EOF
         # На HQ-SRV не используем samba-dlz (это только для BR-SRV)
@@ -514,7 +514,7 @@ docker IN A $ISP_BR_IP
 EOF
 
         # 2. Обратная зона HQ (192.168.10.x)
-        cat <<EOF > /etc/bind/zones/db.10.168.192.in-addr.arpa
+        cat <<EOF > /etc/bind/zones/db.$HQ_SRV_REV_ZONE
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
@@ -522,7 +522,7 @@ $(last_octet "$HQ_SRV_IP") IN PTR hq-srv.au-team.irpo.
 EOF
 
         # 3. Обратная зона CLI (192.168.20.x)
-        cat <<EOF > /etc/bind/zones/db.20.168.192.in-addr.arpa
+        cat <<EOF > /etc/bind/zones/db.$HQ_CLI_REV_ZONE
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
@@ -530,32 +530,32 @@ $(last_octet "$HQ_CLI_IP") IN PTR hq-cli.au-team.irpo.
 EOF
 
         # 4. Обратная зона WAN HQ (172.16.1.x)
-        cat <<EOF > /etc/bind/zones/db.1.16.172.in-addr.arpa
+        cat <<EOF > /etc/bind/zones/db.$HQ_WAN_REV_ZONE
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
-$(last_octet "$ISP_HQ_IP") IN PTR docker.au-team.irpo.
+$(last_octet "$ISP_HQ_IP") IN PTR web.au-team.irpo.
 $(last_octet "$HQ_RTR_WAN_IP") IN PTR hq-rtr.au-team.irpo.
 EOF
 
         # 5. Обратная зона WAN BR (172.16.2.x)
-        cat <<EOF > /etc/bind/zones/db.2.16.172.in-addr.arpa
+        cat <<EOF > /etc/bind/zones/db.$BR_WAN_REV_ZONE
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
-$(last_octet "$ISP_BR_IP") IN PTR web.au-team.irpo.
+$(last_octet "$ISP_BR_IP") IN PTR docker.au-team.irpo.
 $(last_octet "$BR_RTR_WAN_IP") IN PTR br-rtr.au-team.irpo.
 EOF
 
         # 6. Обратная зона BR (192.168.100.x)
-        cat <<EOF > /etc/bind/zones/db.100.168.192.in-addr.arpa
+        cat <<EOF > /etc/bind/zones/db.$BR_SRV_REV_ZONE
 \$TTL 604800
 @ IN SOA hq-srv.au-team.irpo. root.au-team.irpo. ( 2026020201 604800 86400 2419200 604800 )
 @ IN NS hq-srv.au-team.irpo.
 $(last_octet "$BR_SRV_IP") IN PTR br-srv.au-team.irpo.
 EOF
         # Проверка и запуск DNS
-        named-checkconf -z >/dev/null 2>&1 || true
+        named-checkconf -z
         systemctl restart named >/dev/null 2>&1 || systemctl restart bind9
         # Быстрая проверка, что DNS отвечает локально
         nslookup hq-srv.${DOMAIN} 127.0.0.1 >/dev/null 2>&1 || true
